@@ -1,0 +1,23 @@
+{
+  "id": "calculator",
+  "name": "Calculator",
+  "layout": { "width": 320, "height": 240, "bg": "#0F172A" },
+  "widgets": [
+    { "type": "header", "id": "hdr", "x": 0, "y": 0, "w": 320, "h": 34, "style": { "bg": "#1E293B" } },
+    { "type": "button", "id": "btn_back", "text": "<", "x": 6, "y": 4, "w": 28, "h": 24, "style": { "bg": "#334155" } },
+    { "type": "label", "id": "title", "text": "Calculator", "x": 126, "y": 9, "style": { "color": "#F8FAFC" } },
+
+    { "type": "textarea", "id": "ta_expr", "x": 10, "y": 42, "w": 300, "h": 30, "placeholder": "(12+3)*4", "style": { "bg": "#1E293B", "color": "#F8FAFC" } },
+    { "type": "label", "id": "lbl_result", "text": "= 0", "x": 16, "y": 78, "style": { "color": "#94A3B8", "font": "montserrat_16" } },
+
+    { "type": "buttonmatrix", "id": "calc_keys", "x": 10, "y": 106, "w": 300, "h": 124,
+      "map": ["7", "8", "9", "/", "4", "5", "6", "*", "1", "2", "3", "-", "0", ".", "=", "+", "C", "(", ")", "DEL"],
+      "style": { "bg": "#334155", "text": "#F8FAFC", "checked": "#0EA5E9" }
+    }
+  ],
+  "logic": {
+    "parser": "infix_eval",
+    "operators": ["+", "-", "*", "/", "()"],
+    "precision": 6
+  }
+}

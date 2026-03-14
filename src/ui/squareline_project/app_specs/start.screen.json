@@ -1,0 +1,15 @@
+{
+  "id": "start",
+  "name": "Start",
+  "layout": { "width": 320, "height": 240, "bg": "#0F172A" },
+  "widgets": [
+    { "type": "label", "id": "title", "text": "KaiCam", "x": 12, "y": 8, "style": { "color": "#F8FAFC", "font": "montserrat_20" } },
+    { "type": "label", "id": "sub", "text": "Windows 8.1 style", "x": 12, "y": 34, "style": { "color": "#94A3B8", "font": "montserrat_12" } },
+
+    { "type": "tile_button", "id": "btn_settings", "text": "Settings", "x": 12, "y": 56, "w": 144, "h": 78, "style": { "bg": "#0EA5E9", "radius": 8 } },
+    { "type": "tile_button", "id": "btn_camera", "text": "Capture", "x": 164, "y": 56, "w": 144, "h": 78, "style": { "bg": "#10B981", "radius": 8 } },
+    { "type": "tile_button", "id": "btn_files", "text": "Files", "x": 12, "y": 142, "w": 96, "h": 86, "style": { "bg": "#F59E0B", "radius": 8 } },
+    { "type": "tile_button", "id": "btn_terminal", "text": "Terminal", "x": 116, "y": 142, "w": 96, "h": 86, "style": { "bg": "#8B5CF6", "radius": 8 } },
+    { "type": "tile_button", "id": "btn_calculator", "text": "Calc", "x": 220, "y": 142, "w": 88, "h": 86, "style": { "bg": "#06B6D4", "radius": 8 } }
+  ]
+}

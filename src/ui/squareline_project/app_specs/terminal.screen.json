@@ -1,0 +1,21 @@
+{
+  "id": "terminal",
+  "name": "Terminal_BASIC",
+  "layout": { "width": 320, "height": 240, "bg": "#020617" },
+  "widgets": [
+    { "type": "header", "id": "hdr", "x": 0, "y": 0, "w": 320, "h": 34, "style": { "bg": "#111827" } },
+    { "type": "button", "id": "btn_back", "text": "<", "x": 6, "y": 4, "w": 28, "h": 24, "style": { "bg": "#334155" } },
+    { "type": "label", "id": "title", "text": "Terminal BASIC", "x": 108, "y": 9, "style": { "color": "#F8FAFC" } },
+
+    { "type": "textarea", "id": "ta_output", "x": 8, "y": 40, "w": 304, "h": 130, "placeholder": "READY. Type HELP", "readonly": true, "style": { "bg": "#0F172A", "color": "#22C55E" } },
+    { "type": "textarea", "id": "ta_input", "x": 8, "y": 176, "w": 224, "h": 26, "placeholder": "10 PRINT \"HELLO\"", "style": { "bg": "#1E293B", "color": "#F8FAFC" } },
+    { "type": "button", "id": "btn_run", "text": "RUN", "x": 238, "y": 176, "w": 74, "h": 26, "style": { "bg": "#10B981" } },
+
+    { "type": "label", "id": "help", "text": "BASIC: HELP PRINT LET LIST CLS RUN", "x": 10, "y": 210, "style": { "color": "#94A3B8", "font": "montserrat_10" } }
+  ],
+  "logic": {
+    "interpreter": "mini_basic",
+    "supported_commands": ["HELP", "PRINT", "LET", "LIST", "CLS", "RUN"],
+    "variables": "A-Z"
+  }
+}

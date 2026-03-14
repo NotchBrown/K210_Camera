@@ -1,0 +1,28 @@
+{
+  "build": {
+    "extra_flags": "-DBOARD_YEHUO_K210",
+    "f_cpu": "400000000L",
+    "mcu": "K210",
+    "hwids": [
+      "0x0403",
+      "0x6010"
+    ],
+    "variant": "yehuo_k210",
+    "board_def": "BOARD_YEHUO_K210"
+  },
+  "frameworks": [
+    "kendryte-standalone-sdk",
+    "kendryte-freertos-sdk",
+    "arduino"
+  ],
+  "name": "Yehuo K210 Board",
+  "upload": {
+    "maximum_ram_size": 6291456,
+    "maximum_size": 16777216,
+    "burn_tool": "default",
+    "require_upload_port": true,
+    "speed": 2000000
+  },
+  "url": "https://sipeed.com/",
+  "vendor": "Yehuo"
+}

@@ -1,0 +1,57 @@
+{
+  "format": "spj",
+  "format_version": "1.0",
+  "tool": "SquareLine Studio",
+  "project": {
+    "name": "K210_Camera_Win81",
+    "author": "Copilot",
+    "created": "2026-03-13",
+    "target": {
+      "framework": "LVGL",
+      "lvgl_version": "9.x",
+      "color_depth": 16,
+      "resolution": { "width": 320, "height": 240 }
+    },
+    "style": {
+      "theme": "windows8_1",
+      "palette": {
+        "bg": "#0F172A",
+        "surface": "#1E293B",
+        "text": "#F8FAFC",
+        "muted": "#94A3B8",
+        "tile_blue": "#0EA5E9",
+        "tile_green": "#10B981",
+        "tile_orange": "#F59E0B",
+        "tile_purple": "#8B5CF6"
+      }
+    }
+  },
+  "assets": [
+    "assets/win81_palette.json"
+  ],
+  "screens": [
+    "screens/start.screen.json",
+    "screens/settings.screen.json",
+    "screens/camera.screen.json",
+    "screens/files.screen.json",
+    "screens/terminal.screen.json",
+    "screens/calculator.screen.json"
+  ],
+  "navigation": [
+    { "from": "start", "to": "settings", "event": "btn_settings.clicked" },
+    { "from": "start", "to": "camera", "event": "btn_camera.clicked" },
+    { "from": "start", "to": "files", "event": "btn_files.clicked" },
+    { "from": "start", "to": "terminal", "event": "btn_terminal.clicked" },
+    { "from": "start", "to": "calculator", "event": "btn_calculator.clicked" },
+    { "from": "settings", "to": "start", "event": "btn_back.clicked" },
+    { "from": "camera", "to": "start", "event": "btn_back.clicked" },
+    { "from": "files", "to": "start", "event": "btn_back.clicked" },
+    { "from": "terminal", "to": "start", "event": "btn_back.clicked" },
+    { "from": "calculator", "to": "start", "event": "btn_back.clicked" }
+  ],
+  "notes": [
+    "Terminal app includes a minimal BASIC command model: HELP, PRINT, LET, LIST, CLS, RUN.",
+    "Settings app has Date and Time rollers.",
+    "Camera app is a UI shell (preview + shutter + mode)."
+  ]
+}

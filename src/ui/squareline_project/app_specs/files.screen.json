@@ -1,0 +1,18 @@
+{
+  "id": "files",
+  "name": "Files",
+  "layout": { "width": 320, "height": 240, "bg": "#0F172A" },
+  "widgets": [
+    { "type": "header", "id": "hdr", "x": 0, "y": 0, "w": 320, "h": 36, "style": { "bg": "#1E293B" } },
+    { "type": "button", "id": "btn_back", "text": "< Back", "x": 8, "y": 4, "w": 74, "h": 28, "style": { "bg": "#334155" } },
+    { "type": "label", "id": "title", "text": "Files", "x": 144, "y": 9, "style": { "color": "#F8FAFC" } },
+
+    { "type": "list", "id": "file_list", "x": 10, "y": 44, "w": 300, "h": 186, "items": [
+      "DCIM/IMG_0001.JPG",
+      "DCIM/IMG_0002.JPG",
+      "DCIM/IMG_0003.JPG",
+      "SYSTEM/CONFIG.INI",
+      "LOGS/BOOT.LOG"
+    ]}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "camera",
+  "name": "Capture",
+  "layout": { "width": 320, "height": 240, "bg": "#0B1220" },
+  "widgets": [
+    { "type": "button", "id": "btn_back", "text": "<", "x": 8, "y": 8, "w": 32, "h": 26, "style": { "bg": "#334155" } },
+    { "type": "label", "id": "title", "text": "Capture", "x": 128, "y": 12, "style": { "color": "#F8FAFC" } },
+
+    { "type": "rect", "id": "preview_frame", "x": 16, "y": 40, "w": 288, "h": 148, "style": { "bg": "#1E293B", "border": "#475569" } },
+    { "type": "label", "id": "preview_text", "text": "Preview", "x": 140, "y": 108, "style": { "color": "#94A3B8" } },
+
+    { "type": "button", "id": "btn_mode", "text": "Photo", "x": 24, "y": 200, "w": 70, "h": 30, "style": { "bg": "#0EA5E9" } },
+    { "type": "button", "id": "btn_shutter", "text": "Shoot", "x": 120, "y": 196, "w": 80, "h": 36, "style": { "bg": "#EF4444" } },
+    { "type": "button", "id": "btn_gallery", "text": "Gallery", "x": 226, "y": 200, "w": 70, "h": 30, "style": { "bg": "#10B981" } }
+  ]
+}
