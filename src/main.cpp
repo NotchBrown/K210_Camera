@@ -1,9 +1,3 @@
-/*
- * main.cpp — KaiCam 启动入口
- *
- * 职责：硬件初始化 + LVGL 初始化 + 启动 app_manager
- * 业务逻辑全部委托给各 screen_*.cpp 层。
- */
 #include "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
 #include "kendryte-standalone-sdk/lib/freertos/include/task.h"
 #include <Arduino.h>

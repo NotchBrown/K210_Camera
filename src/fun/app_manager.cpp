@@ -1,6 +1,7 @@
 #include <lvgl.h>
 #include <string.h>
 
+#include "app_log.h"
 #include "app_manager.h"
 #include "rtc_driver.h"
 #include "screen_home.h"
@@ -11,7 +12,7 @@ static app_screen_id_t s_current_id  = SCREEN_ID_HOME;
 static bool            s_initialized = false;
 
 static bool           s_rtc_ready = false;
-static app_profile_t  s_profile = { "张三", "13800000000" };
+static app_profile_t  s_profile = { "User", "1145141919810" };
 
 static bool is_leap_year(int16_t year) {
     return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
@@ -122,28 +123,36 @@ void app_manager_set_profile(const app_profile_t *profile) {
 void app_manager_navigate_to(app_screen_id_t id) {
     lv_obj_t *new_scr = NULL;
 
+    APP_LOGI("AppMgr: navigate from %d to %d", (int)s_current_id, (int)id);
+
     switch (id) {
-        case SCREEN_ID_HOME:     new_scr = screen_home_create();     break;
-        case SCREEN_ID_SETTINGS: new_scr = screen_settings_create(); break;
+        case SCREEN_ID_HOME:
+            new_scr = screen_home_create();
+            break;
+        case SCREEN_ID_SETTINGS:
+            new_scr = screen_settings_create();
+            break;
         default: return;
     }
 
-    lv_screen_load_anim_t anim;
-    if (!s_initialized) {
-        anim = LV_SCREEN_LOAD_ANIM_NONE;   /* 首次加载无动画 */
-        s_initialized = true;
-    } else if (id > s_current_id) {
-        anim = LV_SCREEN_LOAD_ANIM_MOVE_LEFT;   /* 向前：右滑入 */
-    } else {
-        anim = LV_SCREEN_LOAD_ANIM_MOVE_RIGHT;  /* 返回：左滑入 */
+    if (new_scr == NULL) {
+        APP_LOGE("AppMgr: create screen %d failed", (int)id);
+        return;
     }
 
-    lv_screen_load_anim(new_scr, anim, 250, 0, true);
+    lv_screen_load_anim_t anim = LV_SCREEN_LOAD_ANIM_NONE;
+    if (!s_initialized) {
+        s_initialized = true;
+    }
+
+    lv_screen_load_anim(new_scr, anim, 0, 0, true);
     s_current_id = id;
+    APP_LOGI("AppMgr: screen load queued id=%d anim=%d", (int)id, (int)anim);
 }
 
 void app_manager_init(void) {
     rtc_bootstrap();
     lv_timer_create(sec_timer_cb, 1000, NULL);
+    APP_LOGI("AppMgr: init done, load home");
     app_manager_navigate_to(SCREEN_ID_HOME);
 }

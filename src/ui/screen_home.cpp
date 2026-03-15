@@ -1,6 +1,7 @@
 #include <lvgl.h>
 
 #include "app_fonts.h"
+#include "app_log.h"
 #include "app_manager.h"
 #include "screen_home.h"
 
@@ -73,6 +74,7 @@ static void show_home_tip(const char *msg) {
 
 static void app_settings_cb(lv_event_t *event) {
     LV_UNUSED(event);
+    APP_LOGI("Home: Settings button clicked, navigate to SETTINGS");
     app_manager_navigate_to(SCREEN_ID_SETTINGS);
 }
 
@@ -217,6 +219,7 @@ static void build_apps_tab(lv_obj_t *tab_apps) {
 
 static void screen_delete_cb(lv_event_t *event) {
     LV_UNUSED(event);
+    APP_LOGI("Home: screen delete start");
     if (s_refresh_timer) {
         lv_timer_delete(s_refresh_timer);
         s_refresh_timer = NULL;
@@ -234,9 +237,11 @@ static void screen_delete_cb(lv_event_t *event) {
     s_min_needle = NULL;
     s_sec_needle = NULL;
     s_home_tip = NULL;
+    APP_LOGI("Home: screen delete done");
 }
 
 lv_obj_t *screen_home_create(void) {
+    APP_LOGI("Home: create start");
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_size(scr, 320, 240);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -267,5 +272,6 @@ lv_obj_t *screen_home_create(void) {
 
     s_refresh_timer = lv_timer_create(home_timer_cb, 1000, NULL);
     update_home_datetime_ui();
+    APP_LOGI("Home: create done");
     return scr;
 }

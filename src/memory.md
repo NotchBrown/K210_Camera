@@ -4,6 +4,10 @@
 - 显示刷新路径使用 ST7789 DMA 发送，且启用 LVGL 双缓冲。
 - 目录重构目标：driver 放硬件抽象，lvgl 放显示/触摸/运行时，ui 放界面，fun 放业务功能。
 - 串口调试统一使用 APP_LOG 宏，方便 release 时降低日志级别。
+- 通过临时注入 PATH(`C:\Users\Lenovo\.platformio\penv\Scripts`)恢复了 platformio 命令，并完成编译/上传。
+- 已参考 `D:\K210\kendryte-freertos-demo\lcd\lcd.c` 的 DMA 刷屏模式：继续使用 `tft_write_*` DMA 路径。
+- 当前刷屏从“额外 DMA 缓冲拷贝”改为“LVGL flush 缓冲原地字节序处理 + DMA 发送”，降低内存带宽开销。
+- 已增加屏幕调试叠层：显示 heap、flush/s、last flush us。
 
 # require
 1. 不要开关

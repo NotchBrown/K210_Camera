@@ -17,7 +17,6 @@ static volatile uint32_t s_last_flush_us = 0;
 #define FRAME_PIXELS (TFT_HOR_RES * TFT_VER_RES)
 static lv_color_t s_draw_buf_1[FRAME_PIXELS];
 static lv_color_t s_draw_buf_2[FRAME_PIXELS];
-static uint16_t s_dma_tx_buf[FRAME_PIXELS];
 
 static inline uint16_t swap_u16(uint16_t value) {
     return (uint16_t)((value >> 8) | (value << 8));
@@ -32,12 +31,14 @@ static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
     uint32_t px_cnt = w * h;
     uint16_t *src = (uint16_t *)px_map;
 
+#if LV_COLOR_16_SWAP == 0
     for (uint32_t i = 0; i < px_cnt; i++) {
-        s_dma_tx_buf[i] = swap_u16(src[i]);
+        src[i] = swap_u16(src[i]);
     }
+#endif
 
     lcd_set_area((uint16_t)area->x1, (uint16_t)area->y1, (uint16_t)area->x2, (uint16_t)area->y2);
-    tft_write_byte((uint8_t *)s_dma_tx_buf, px_cnt * 2);
+    tft_write_byte((uint8_t *)src, px_cnt * 2);
 
     s_flush_count++;
     s_last_flush_us = micros() - t0;

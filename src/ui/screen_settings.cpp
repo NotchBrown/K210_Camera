@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "app_fonts.h"
+#include "app_log.h"
 #include "app_manager.h"
 #include "screen_settings.h"
 
@@ -39,6 +40,13 @@ static void clock_timer_cb(lv_timer_t *timer) {
 
 static void back_home_cb(lv_event_t *event) {
     LV_UNUSED(event);
+#if LV_USE_KEYBOARD
+    if (s_kb) {
+        lv_keyboard_set_textarea(s_kb, NULL);
+        lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
+    APP_LOGI("Settings: Home button clicked, navigate to HOME");
     app_manager_navigate_to(SCREEN_ID_HOME);
 }
 
@@ -112,6 +120,7 @@ static void keyboard_event_cb(lv_event_t *event) {
     lv_event_code_t code = lv_event_get_code(event);
     lv_obj_t *kb = (lv_obj_t *)lv_event_get_target(event);
     if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+        APP_LOGI("Settings: keyboard hide on event=%d", (int)code);
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     }
 #else
@@ -130,15 +139,21 @@ static void textarea_event_cb(lv_event_t *event) {
     }
 
     if (code == LV_EVENT_FOCUSED) {
-        if (lv_indev_get_type(lv_indev_get_act()) != LV_INDEV_TYPE_KEYPAD) {
+        lv_indev_t *act_indev = lv_indev_get_act();
+        lv_indev_type_t indev_type = act_indev ? lv_indev_get_type(act_indev) : LV_INDEV_TYPE_NONE;
+
+        APP_LOGI("Settings: textarea focused, indev=%p type=%d", (void *)act_indev, (int)indev_type);
+        if (indev_type != LV_INDEV_TYPE_KEYPAD) {
             lv_keyboard_set_textarea(kb, ta);
             lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
         }
     } else if (code == LV_EVENT_READY) {
+        APP_LOGI("Settings: textarea ready, hide keyboard");
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_state(ta, LV_STATE_FOCUSED);
         lv_indev_reset(NULL, ta);
     } else if (code == LV_EVENT_DEFOCUSED) {
+        APP_LOGI("Settings: textarea defocused, detach keyboard");
         lv_keyboard_set_textarea(kb, NULL);
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     }
@@ -152,6 +167,7 @@ static void save_profile_cb(lv_event_t *event) {
     lv_snprintf(s_profile.name, sizeof(s_profile.name), "%s", lv_textarea_get_text(s_ta_name));
     lv_snprintf(s_profile.phone, sizeof(s_profile.phone), "%s", lv_textarea_get_text(s_ta_phone));
     app_manager_set_profile(&s_profile);
+    APP_LOGI("Settings: profile saved");
 }
 
 static void build_general_tab(lv_obj_t *tab) {
@@ -324,6 +340,7 @@ static void build_system_tab(lv_obj_t *tab) {
 
 static void screen_delete_cb(lv_event_t *event) {
     LV_UNUSED(event);
+    APP_LOGI("Settings: screen delete start");
     if (s_refresh_timer) {
         lv_timer_delete(s_refresh_timer);
         s_refresh_timer = NULL;
@@ -342,9 +359,11 @@ static void screen_delete_cb(lv_event_t *event) {
     s_ta_name = NULL;
     s_ta_phone = NULL;
     s_kb = NULL;
+    APP_LOGI("Settings: screen delete done");
 }
 
 lv_obj_t *screen_settings_create(void) {
+    APP_LOGI("Settings: create start");
     app_manager_get_profile(&s_profile);
 
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -412,5 +431,6 @@ lv_obj_t *screen_settings_create(void) {
     s_refresh_timer = lv_timer_create(clock_timer_cb, 1000, NULL);
     refresh_footer_clock();
 
+    APP_LOGI("Settings: create done");
     return scr;
 }
