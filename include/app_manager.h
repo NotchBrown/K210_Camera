@@ -18,16 +18,15 @@ typedef struct {
     int8_t  second;  /* 0 ~ 59      */
 } app_datetime_t;
 
-/* ── 共用调色板（hex 字面量，供各屏幕直接使用） ─────────────── */
-#define APP_COL_BG      0x0F172A   /* 深夜蓝背景  */
-#define APP_COL_SURFACE 0x1E293B   /* 卡片/顶栏   */
-#define APP_COL_ELEM    0x334155   /* 次要元素    */
-#define APP_COL_ACCENT  0x3B82F6   /* 主蓝色      */
-#define APP_COL_TEXT    0xF1F5F9   /* 主文字      */
-#define APP_COL_MUTED   0x64748B   /* 辅助文字    */
+typedef struct {
+    char name[32];
+    char phone[20];
+} app_profile_t;
 
 /* ── API ────────────────────────────────────────────────── */
 void app_manager_init(void);
 void app_manager_navigate_to(app_screen_id_t id);
 void app_manager_get_datetime(app_datetime_t *dt);
 void app_manager_set_datetime(const app_datetime_t *dt);
+void app_manager_get_profile(app_profile_t *profile);
+void app_manager_set_profile(const app_profile_t *profile);

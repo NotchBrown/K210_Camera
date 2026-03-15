@@ -172,7 +172,7 @@
 
 /* LVGL v9 options actually consumed by the library */
 #define LV_USE_LOG 1
-#define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+#define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
 #define LV_LOG_PRINTF 0
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1
@@ -223,6 +223,7 @@
 #define USE_LV_FONT_MONOSPACE_8            1
 
 #define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK 0
 
 /* Optionally declare your custom fonts here.
  * You can use these fonts as default font too
@@ -234,6 +235,9 @@
 
 
 #define LV_FONT_DEFAULT        &lv_font_montserrat_14
+
+/* Allow large bitmap index for very large CJK fonts */
+#define LV_FONT_FMT_TXT_LARGE 1
 
 /*===================
  *  LV_OBJ SETTINGS
