@@ -5,6 +5,13 @@
 #include "app_manager.h"
 #include "screen_home.h"
 
+LV_IMAGE_DECLARE(_settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_photo_camera_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_folder_open_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_terminal_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_sensor_occupied_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+
 static lv_obj_t *s_home_date = NULL;
 static lv_obj_t *s_home_clock = NULL;
 static lv_obj_t *s_home_analog = NULL;
@@ -14,6 +21,14 @@ static lv_obj_t *s_sec_needle = NULL;
 static lv_obj_t *s_home_tip = NULL;
 static lv_obj_t *s_home_calendar = NULL;
 static lv_timer_t *s_refresh_timer = NULL;
+
+static void close_home_calendar(void) {
+    if (s_home_calendar && lv_obj_is_valid(s_home_calendar)) {
+        lv_obj_delete(s_home_calendar);
+        s_home_calendar = NULL;
+    }
+    lv_obj_clear_flag(lv_layer_top(), LV_OBJ_FLAG_CLICKABLE);
+}
 
 static void apply_tabview_style(lv_obj_t *tabview) {
     lv_obj_set_style_bg_opa(tabview, LV_OPA_COVER, LV_PART_MAIN);
@@ -74,8 +89,23 @@ static void show_home_tip(const char *msg) {
 
 static void app_settings_cb(lv_event_t *event) {
     LV_UNUSED(event);
+    close_home_calendar();
     APP_LOGI("Home: Settings button clicked, navigate to SETTINGS");
     app_manager_navigate_to(SCREEN_ID_SETTINGS);
+}
+
+static void app_camera_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    close_home_calendar();
+    APP_LOGI("Home: Camera button clicked, navigate to CAMERA");
+    app_manager_navigate_to(SCREEN_ID_CAMERA);
+}
+
+static void app_file_manager_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    close_home_calendar();
+    APP_LOGI("Home: FileManager button clicked, navigate to FILE_MANAGER");
+    app_manager_navigate_to(SCREEN_ID_FILE_MANAGER);
 }
 
 static void app_not_migrated_cb(lv_event_t *event) {
@@ -101,9 +131,7 @@ static void calendar_pick_cb(lv_event_t *event) {
     dt.day = (int8_t)date.day;
     app_manager_set_datetime(&dt);
 
-    lv_obj_delete(s_home_calendar);
-    s_home_calendar = NULL;
-    lv_obj_clear_flag(lv_layer_top(), LV_OBJ_FLAG_CLICKABLE);
+    close_home_calendar();
     update_home_datetime_ui();
 }
 
@@ -195,16 +223,16 @@ static void build_apps_tab(lv_obj_t *tab_apps) {
     lv_obj_set_style_border_color(list, lv_color_hex(0xe1e6ee), LV_PART_MAIN);
     lv_obj_set_style_radius(list, 3, LV_PART_MAIN);
 
-    lv_obj_t *item0 = lv_list_add_button(list, LV_SYMBOL_SETTINGS, "Settings");
-    lv_obj_t *item1 = lv_list_add_button(list, LV_SYMBOL_IMAGE, "Camera");
-    lv_obj_t *item2 = lv_list_add_button(list, LV_SYMBOL_DIRECTORY, "File Manager");
-    lv_obj_t *item3 = lv_list_add_button(list, LV_SYMBOL_EDIT, "Basic Interpreter");
-    lv_obj_t *item4 = lv_list_add_button(list, LV_SYMBOL_KEYBOARD, "Terminal");
-    lv_obj_t *item5 = lv_list_add_button(list, LV_SYMBOL_EYE_OPEN, "Face Detection (Haar)");
+    lv_obj_t *item0 = lv_list_add_button(list, &_settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Settings");
+    lv_obj_t *item1 = lv_list_add_button(list, &_photo_camera_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Camera");
+    lv_obj_t *item2 = lv_list_add_button(list, &_folder_open_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "File Manager");
+    lv_obj_t *item3 = lv_list_add_button(list, &_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Basic Interpreter");
+    lv_obj_t *item4 = lv_list_add_button(list, &_terminal_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Terminal");
+    lv_obj_t *item5 = lv_list_add_button(list, &_sensor_occupied_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Face Detection (Haar)");
 
     lv_obj_add_event_cb(item0, app_settings_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(item1, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(item2, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(item1, app_camera_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(item2, app_file_manager_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item3, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item4, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item5, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
@@ -224,11 +252,7 @@ static void screen_delete_cb(lv_event_t *event) {
         lv_timer_delete(s_refresh_timer);
         s_refresh_timer = NULL;
     }
-    if (s_home_calendar) {
-        lv_obj_delete(s_home_calendar);
-        s_home_calendar = NULL;
-    }
-    lv_obj_clear_flag(lv_layer_top(), LV_OBJ_FLAG_CLICKABLE);
+    close_home_calendar();
 
     s_home_date = NULL;
     s_home_clock = NULL;
@@ -269,6 +293,7 @@ lv_obj_t *screen_home_create(void) {
     lv_obj_set_size(s_home_clock, 50, 30);
     lv_obj_set_style_text_align(s_home_clock, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_home_clock, app_font_ui(), LV_PART_MAIN);
+    lv_obj_move_foreground(s_home_clock);
 
     s_refresh_timer = lv_timer_create(home_timer_cb, 1000, NULL);
     update_home_datetime_ui();

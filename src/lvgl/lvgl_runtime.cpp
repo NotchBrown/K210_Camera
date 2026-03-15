@@ -84,15 +84,21 @@ void lvgl_runtime_task(void *arg) {
 void lvgl_monitor_task(void *arg) {
     LV_UNUSED(arg);
     uint32_t last_flush = 0;
+    APP_LOGI("RTOS monitor task started");
 
     for (;;) {
+        lv_mem_monitor_t mon;
+        lv_mem_monitor(&mon);
         uint32_t flush_now = display_port_get_flush_count();
         uint32_t flush_delta = flush_now - last_flush;
         uint32_t last_us = display_port_get_last_flush_us();
         last_flush = flush_now;
 
-        APP_LOGI("RTOS heap=%u, flush/s=%u, last_flush_us=%u",
+        APP_LOGI("RTOS heap=%u(min=%u), LVGL used=%u%% free=%u, flush/s=%u, last_flush_us=%u",
                  (unsigned int)xPortGetFreeHeapSize(),
+                 (unsigned int)xPortGetMinimumEverFreeHeapSize(),
+                 (unsigned int)mon.used_pct,
+                 (unsigned int)mon.free_size,
                  (unsigned int)flush_delta,
                  (unsigned int)last_us);
 

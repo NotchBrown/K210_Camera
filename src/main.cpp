@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "app_log.h"
+#include "app_manager.h"
 #include "lvgl_runtime.h"
 
 void setup() {
@@ -11,8 +12,9 @@ void setup() {
 
     BaseType_t ok1 = xTaskCreate(lvgl_runtime_task, "ui", 6144, NULL, tskIDLE_PRIORITY + 2, NULL);
     BaseType_t ok2 = xTaskCreate(lvgl_monitor_task, "mon", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+    BaseType_t ok3 = xTaskCreate(app_manager_service_task, "svc", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
 
-    if (ok1 != pdPASS || ok2 != pdPASS) {
+    if (ok1 != pdPASS || ok2 != pdPASS || ok3 != pdPASS) {
         APP_LOGE("xTaskCreate failed");
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(1000));

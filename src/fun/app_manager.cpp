@@ -1,18 +1,49 @@
 #include <lvgl.h>
+#include "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
+#include "kendryte-standalone-sdk/lib/freertos/include/semphr.h"
+#include "kendryte-standalone-sdk/lib/freertos/include/task.h"
+
 #include <string.h>
 
 #include "app_log.h"
 #include "app_manager.h"
 #include "rtc_driver.h"
+#include "screen_camera.h"
+#include "screen_file_manager.h"
 #include "screen_home.h"
 #include "screen_settings.h"
 
 /* ── 全局状态 ────────────────────────────────────────────── */
 static app_screen_id_t s_current_id  = SCREEN_ID_HOME;
 static bool            s_initialized = false;
+static SemaphoreHandle_t s_lock = NULL;
 
 static bool           s_rtc_ready = false;
 static app_profile_t  s_profile = { "User", "1145141919810" };
+static app_camera_settings_t s_camera_settings = {
+    2, 3, 0,
+    true, true, true, false,
+    false, false, false
+};
+static app_camera_state_t s_camera_state = { false, false, 0, 0 };
+static app_system_status_t s_system_status = {
+    false, false, 0, 0, "Storage is not checked yet."
+};
+
+static volatile bool s_storage_check_req = false;
+static volatile bool s_storage_format_req = false;
+
+static void state_lock(void) {
+    if (s_lock) {
+        (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+    }
+}
+
+static void state_unlock(void) {
+    if (s_lock) {
+        (void)xSemaphoreGive(s_lock);
+    }
+}
 
 static bool is_leap_year(int16_t year) {
     return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
@@ -86,42 +117,126 @@ static void rtc_bootstrap(void) {
     }
 }
 
-static void sec_timer_cb(lv_timer_t *t) {
-    LV_UNUSED(t);
-    if (!s_rtc_ready) {
-        return;
-    }
-}
-
 /* ── 公开 API ────────────────────────────────────────────── */
 void app_manager_get_datetime(app_datetime_t *dt) {
-    if (!rtc_read_datetime(dt)) {
-        static const app_datetime_t k_fallback_dt = { 2025, 1, 1, 12, 0, 0 };
-        *dt = k_fallback_dt;
+    static const app_datetime_t k_default_dt = { 2025, 1, 1, 12, 0, 0 };
+
+    if (rtc_read_datetime(dt)) {
+        return;
     }
+
+    *dt = k_default_dt;
 }
 
 void app_manager_set_datetime(const app_datetime_t *dt) {
     app_datetime_t normalized = *dt;
     normalize_datetime(&normalized);
-
-    if (!rtc_write_datetime(&normalized)) {
-        return;
-    }
+    (void)rtc_write_datetime(&normalized);
 }
 
 void app_manager_get_profile(app_profile_t *profile) {
+    state_lock();
     *profile = s_profile;
+    state_unlock();
 }
 
 void app_manager_set_profile(const app_profile_t *profile) {
+    state_lock();
     s_profile = *profile;
     s_profile.name[sizeof(s_profile.name) - 1] = '\0';
     s_profile.phone[sizeof(s_profile.phone) - 1] = '\0';
+    state_unlock();
+}
+
+void app_manager_get_camera_settings(app_camera_settings_t *settings) {
+    state_lock();
+    *settings = s_camera_settings;
+    state_unlock();
+}
+
+void app_manager_set_camera_settings(const app_camera_settings_t *settings) {
+    app_camera_settings_t s = *settings;
+    if (s.capture_res_index > 5) s.capture_res_index = 5;
+    if (s.agc_ceiling_index > 6) s.agc_ceiling_index = 6;
+    if (s.ae_level < -2) s.ae_level = -2;
+    if (s.ae_level > 2) s.ae_level = 2;
+
+    state_lock();
+    s_camera_settings = s;
+    state_unlock();
+}
+
+void app_manager_get_camera_state(app_camera_state_t *state) {
+    state_lock();
+    *state = s_camera_state;
+    state_unlock();
+}
+
+bool app_manager_camera_toggle_preview(void) {
+    bool ret;
+    state_lock();
+    s_camera_state.preview_running = !s_camera_state.preview_running;
+    if (!s_camera_state.preview_running) {
+        s_camera_state.recording = false;
+        s_camera_state.record_seconds = 0;
+    }
+    ret = s_camera_state.preview_running;
+    state_unlock();
+    return ret;
+}
+
+bool app_manager_camera_toggle_record(void) {
+    bool ret;
+    state_lock();
+    if (!s_camera_state.preview_running) {
+        state_unlock();
+        return false;
+    }
+    s_camera_state.recording = !s_camera_state.recording;
+    if (!s_camera_state.recording) {
+        s_camera_state.record_seconds = 0;
+    }
+    ret = s_camera_state.recording;
+    state_unlock();
+    return ret;
+}
+
+bool app_manager_camera_take_snapshot(void) {
+    bool ok = false;
+    state_lock();
+    if (s_camera_state.preview_running) {
+        s_camera_state.snapshot_count++;
+        ok = true;
+    }
+    state_unlock();
+    return ok;
+}
+
+void app_manager_get_system_status(app_system_status_t *status) {
+    state_lock();
+    *status = s_system_status;
+    state_unlock();
+}
+
+void app_manager_request_storage_check(void) {
+    state_lock();
+    s_storage_check_req = true;
+    lv_snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+                "Checking storage...");
+    state_unlock();
+}
+
+void app_manager_request_storage_format(void) {
+    state_lock();
+    s_storage_format_req = true;
+    lv_snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+                "Formatting storage...");
+    state_unlock();
 }
 
 void app_manager_navigate_to(app_screen_id_t id) {
     lv_obj_t *new_scr = NULL;
+    lv_obj_t *old_scr = lv_screen_active();
 
     APP_LOGI("AppMgr: navigate from %d to %d", (int)s_current_id, (int)id);
 
@@ -132,6 +247,12 @@ void app_manager_navigate_to(app_screen_id_t id) {
         case SCREEN_ID_SETTINGS:
             new_scr = screen_settings_create();
             break;
+        case SCREEN_ID_CAMERA:
+            new_scr = screen_camera_create();
+            break;
+        case SCREEN_ID_FILE_MANAGER:
+            new_scr = screen_file_manager_create();
+            break;
         default: return;
     }
 
@@ -140,19 +261,69 @@ void app_manager_navigate_to(app_screen_id_t id) {
         return;
     }
 
-    lv_screen_load_anim_t anim = LV_SCREEN_LOAD_ANIM_NONE;
     if (!s_initialized) {
         s_initialized = true;
     }
 
-    lv_screen_load_anim(new_scr, anim, 0, 0, true);
+    lv_screen_load(new_scr);
+    if (old_scr && old_scr != new_scr && lv_obj_is_valid(old_scr)) {
+        lv_obj_delete_async(old_scr);
+    }
     s_current_id = id;
-    APP_LOGI("AppMgr: screen load queued id=%d anim=%d", (int)id, (int)anim);
+    APP_LOGI("AppMgr: screen load done id=%d", (int)id);
 }
 
 void app_manager_init(void) {
+    s_lock = xSemaphoreCreateMutex();
+    if (!s_lock) {
+        APP_LOGE("AppMgr: mutex create failed");
+    }
+
     rtc_bootstrap();
-    lv_timer_create(sec_timer_cb, 1000, NULL);
     APP_LOGI("AppMgr: init done, load home");
     app_manager_navigate_to(SCREEN_ID_HOME);
+}
+
+void app_manager_service_task(void *arg) {
+    LV_UNUSED(arg);
+    TickType_t last = xTaskGetTickCount();
+    uint32_t elapsed_ms = 0;
+
+    for (;;) {
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(200));
+        elapsed_ms += 200U;
+
+        state_lock();
+
+        if (s_storage_format_req) {
+            s_storage_format_req = false;
+            s_system_status.storage_checked = true;
+            s_system_status.storage_available = true;
+            s_system_status.storage_total_kb = 32768;
+            s_system_status.storage_free_kb = 32000;
+            lv_snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+                        "Format done: total=%luKB free=%luKB",
+                        (unsigned long)s_system_status.storage_total_kb,
+                        (unsigned long)s_system_status.storage_free_kb);
+        } else if (s_storage_check_req) {
+            s_storage_check_req = false;
+            s_system_status.storage_checked = true;
+            s_system_status.storage_available = true;
+            s_system_status.storage_total_kb = 32768;
+            s_system_status.storage_free_kb = 24576;
+            lv_snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+                        "SD OK: total=%luKB free=%luKB",
+                        (unsigned long)s_system_status.storage_total_kb,
+                        (unsigned long)s_system_status.storage_free_kb);
+        }
+
+        if (elapsed_ms >= 1000U) {
+            elapsed_ms -= 1000U;
+            if (s_camera_state.preview_running && s_camera_state.recording) {
+                s_camera_state.record_seconds++;
+            }
+        }
+
+        state_unlock();
+    }
 }

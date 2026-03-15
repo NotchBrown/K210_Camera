@@ -17,6 +17,11 @@
 #define LV_CONF_INCLUDE_SIMPLE 1
 #endif
 
+/* LVGL v9 stdlib selection: route LVGL heap ops to our RTOS-backed custom core. */
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CUSTOM
+#define LV_USE_STDLIB_STRING LV_STDLIB_CLIB
+#define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
+
 #define LV_MEM_ENV64
 
 /*===================
@@ -27,7 +32,7 @@
  * to store the graphical objects and other data */
 #define LV_MEM_CUSTOM      0                /*1: use custom malloc/free, 0: use the built-in lv_mem_alloc/lv_mem_free*/
 #if LV_MEM_CUSTOM == 0
-#  define LV_MEM_SIZE    (1024U * 1024U)      /*Dedicated LVGL heap to prevent UI OOM during page switching*/
+#  define LV_MEM_SIZE    (2048U * 1024U)      /*Dedicated LVGL heap to prevent UI OOM during page switching*/
 #  define LV_MEM_ATTR                         /*Complier prefix for big array declaration*/
 #  define LV_MEM_ADR          0               /*Set an address for memory pool instead of allocation it as an array. Can be in external SRAM too.*/
 #  define LV_MEM_AUTO_DEFRAG  1               /*Automatically defrag on free*/
@@ -223,6 +228,7 @@
 #define USE_LV_FONT_MONOSPACE_8            1
 
 #define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK 0
 
 /* Optionally declare your custom fonts here.
