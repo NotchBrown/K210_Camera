@@ -176,13 +176,15 @@
 #endif  /*USE_LV_LOG*/
 
 /* LVGL v9 options actually consumed by the library */
-#define LV_USE_LOG 1
+#define LV_USE_LOG 0
+#if LV_USE_LOG
 #define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
 #define LV_LOG_PRINTF 0
-#define LV_USE_ASSERT_NULL 1
-#define LV_USE_ASSERT_MALLOC 1
-#define LV_USE_ASSERT_STYLE 1
-#define LV_USE_ASSERT_OBJ 1
+#endif
+#define LV_USE_ASSERT_NULL 0
+#define LV_USE_ASSERT_MALLOC 0
+#define LV_USE_ASSERT_STYLE 0
+#define LV_USE_ASSERT_OBJ 0
 
 /*================
  *  THEME USAGE
@@ -191,12 +193,12 @@
 
 #define USE_LV_THEME_TEMPL      0       /*Just for test*/
 #define USE_LV_THEME_DEFAULT    1       /*Built mainly from the built-in styles. Consumes very few RAM*/
-#define USE_LV_THEME_ALIEN      1       /*Dark futuristic theme*/
-#define USE_LV_THEME_NIGHT      1       /*Dark elegant theme*/
-#define USE_LV_THEME_MONO       1       /*Mono color theme for monochrome displays*/
-#define USE_LV_THEME_MATERIAL   1       /*Flat theme with bold colors and light shadows*/
-#define USE_LV_THEME_ZEN        1       /*Peaceful, mainly light theme */
-#define USE_LV_THEME_NEMO       1       /*Water-like theme based on the movie "Finding Nemo"*/
+#define USE_LV_THEME_ALIEN      0       /*Dark futuristic theme*/
+#define USE_LV_THEME_NIGHT      0       /*Dark elegant theme*/
+#define USE_LV_THEME_MONO       0       /*Mono color theme for monochrome displays*/
+#define USE_LV_THEME_MATERIAL   0       /*Flat theme with bold colors and light shadows*/
+#define USE_LV_THEME_ZEN        0       /*Peaceful, mainly light theme */
+#define USE_LV_THEME_NEMO       0       /*Water-like theme based on the movie "Finding Nemo"*/
 
 /*==================
  *    FONT USAGE

@@ -8,14 +8,16 @@
 
 void setup() {
     Serial.begin(115200);
-    delay(300);
+    delay(100);
+    Serial.println("\r\n\r\n=== K210 Startup ===");
+    delay(200);
 
     BaseType_t ok1 = xTaskCreate(lvgl_runtime_task, "ui", 6144, NULL, tskIDLE_PRIORITY + 2, NULL);
     BaseType_t ok2 = xTaskCreate(lvgl_monitor_task, "mon", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
-    BaseType_t ok3 = xTaskCreate(app_manager_service_task, "svc", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+    BaseType_t ok3 = xTaskCreate(app_manager_service_task, "svc", 4096, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     if (ok1 != pdPASS || ok2 != pdPASS || ok3 != pdPASS) {
-        APP_LOGE("xTaskCreate failed");
+        APP_LOGE("xTaskCreate failed: ok1=%d ok2=%d ok3=%d", ok1, ok2, ok3);
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(1000));
         }

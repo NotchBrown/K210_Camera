@@ -143,17 +143,19 @@ static void textarea_event_cb(lv_event_t *event) {
         return;
     }
 
-    if (code == LV_EVENT_FOCUSED) {
+    if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
         lv_indev_t *act_indev = lv_indev_get_act();
         lv_indev_type_t indev_type = act_indev ? lv_indev_get_type(act_indev) : LV_INDEV_TYPE_NONE;
 
         APP_LOGI("Settings: textarea focused, indev=%p type=%d", (void *)act_indev, (int)indev_type);
         if (indev_type != LV_INDEV_TYPE_KEYPAD) {
             lv_keyboard_set_textarea(kb, ta);
+            lv_obj_move_foreground(kb);
             lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
         }
-    } else if (code == LV_EVENT_READY) {
+    } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
         APP_LOGI("Settings: textarea ready, hide keyboard");
+        lv_keyboard_set_textarea(kb, NULL);
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_state(ta, LV_STATE_FOCUSED);
         lv_indev_reset(NULL, ta);
@@ -387,42 +389,64 @@ static void build_general_tab(lv_obj_t *tab) {
 }
 
 static void build_user_tab(lv_obj_t *tab) {
-    lv_obj_t *card = lv_obj_create(tab);
-    lv_obj_set_pos(card, 10, 10);
-    lv_obj_set_size(card, 280, 150);
-    lv_obj_set_style_radius(card, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(card, lv_color_hex(0xffffff), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card, lv_color_hex(0xe1e6ee), LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(card, 0, LV_PART_MAIN);
+    lv_obj_t *menu = lv_menu_create(tab);
+    lv_obj_set_pos(menu, -10, -10);
+    lv_obj_set_size(menu, 300, 160);
+    lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(menu, 0, LV_PART_MAIN);
 
-    lv_obj_t *label_name = lv_label_create(card);
-    lv_obj_set_pos(label_name, 0, 0);
+    lv_obj_t *sidebar = lv_menu_page_create(menu, "Settings");
+    lv_menu_set_sidebar_page(menu, sidebar);
+    lv_obj_set_style_margin_hor(sidebar, 5, LV_PART_MAIN);
+    lv_obj_set_style_margin_ver(sidebar, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sidebar, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(sidebar, 10, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(sidebar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sidebar, lv_color_hex(0xf6f6f6), LV_PART_MAIN);
+
+    lv_obj_t *person_page = lv_menu_page_create(menu, NULL);
+    lv_obj_t *person_cont = lv_menu_cont_create(person_page);
+    lv_obj_set_layout(person_cont, LV_LAYOUT_NONE);
+
+    lv_obj_t *entry_person = lv_menu_cont_create(sidebar);
+    lv_obj_t *entry_person_label = lv_label_create(entry_person);
+    lv_label_set_text(entry_person_label, "Person");
+    lv_menu_set_load_page_event(menu, entry_person, person_page);
+
+    lv_obj_t *label_name = lv_label_create(person_cont);
+    lv_obj_set_pos(label_name, 10, 10);
     lv_label_set_text(label_name, "Name");
 
-    s_ta_name = lv_textarea_create(card);
-    lv_obj_set_pos(s_ta_name, 0, 20);
-    lv_obj_set_size(s_ta_name, 250, 30);
+    s_ta_name = lv_textarea_create(person_cont);
+    lv_obj_set_pos(s_ta_name, 10, 28);
+    lv_obj_set_size(s_ta_name, 180, 36);
     lv_textarea_set_one_line(s_ta_name, true);
+    lv_textarea_set_max_length(s_ta_name, 31);
+    lv_obj_set_scrollbar_mode(s_ta_name, LV_SCROLLBAR_MODE_OFF);
     lv_textarea_set_text(s_ta_name, s_profile.name);
 
-    lv_obj_t *label_phone = lv_label_create(card);
-    lv_obj_set_pos(label_phone, 0, 60);
+    lv_obj_t *label_phone = lv_label_create(person_cont);
+    lv_obj_set_pos(label_phone, 10, 74);
     lv_label_set_text(label_phone, "Phone");
 
-    s_ta_phone = lv_textarea_create(card);
-    lv_obj_set_pos(s_ta_phone, 0, 80);
-    lv_obj_set_size(s_ta_phone, 250, 30);
+    s_ta_phone = lv_textarea_create(person_cont);
+    lv_obj_set_pos(s_ta_phone, 10, 92);
+    lv_obj_set_size(s_ta_phone, 180, 36);
     lv_textarea_set_one_line(s_ta_phone, true);
-    lv_textarea_set_accepted_chars(s_ta_phone, "0123456789+");
+    lv_textarea_set_max_length(s_ta_phone, 19);
+    lv_textarea_set_accepted_chars(s_ta_phone, "+-0123456789()");
+    lv_obj_set_scrollbar_mode(s_ta_phone, LV_SCROLLBAR_MODE_OFF);
     lv_textarea_set_text(s_ta_phone, s_profile.phone);
 
-    lv_obj_t *btn_save = lv_button_create(card);
-    lv_obj_set_pos(btn_save, 175, 115);
+    lv_obj_t *btn_save = lv_button_create(person_cont);
+    lv_obj_set_pos(btn_save, 120, 160);
     lv_obj_set_size(btn_save, 75, 28);
     lv_obj_add_event_cb(btn_save, save_profile_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_save_label = lv_label_create(btn_save);
-    lv_label_set_text(btn_save_label, "Save");
+    lv_label_set_text(btn_save_label, "Apply");
     lv_obj_center(btn_save_label);
+
+    lv_menu_set_page(menu, person_page);
 
 #if LV_USE_KEYBOARD
     lv_obj_add_event_cb(s_ta_name, textarea_event_cb, LV_EVENT_ALL, s_kb);
@@ -548,12 +572,12 @@ static void build_apps_tab(lv_obj_t *tab) {
     lv_obj_set_pos(s_dd_cap_res, 20, 30);
     lv_obj_set_size(s_dd_cap_res, 160, 30);
     lv_dropdown_set_options(s_dd_cap_res,
-        "QQVGA 160x120\n"
-        "QVGA 320x240\n"
-        "VGA 640x480\n"
-        "SVGA 800x600\n"
-        "XGA 1024x768\n"
-        "SXGA 1280x1024");
+        "640*480@24\n"
+        "640*480@16\n"
+        "320*240@24\n"
+        "320*240@16\n"
+        "160*120@32\n"
+        "160*120@16");
 
     lv_obj_t *label_cont = lv_label_create(camera_cont);
     lv_obj_set_pos(label_cont, 10, 70);
@@ -661,8 +685,10 @@ lv_obj_t *screen_settings_create(void) {
     lv_obj_add_event_cb(scr, screen_delete_cb, LV_EVENT_DELETE, NULL);
 
 #if LV_USE_KEYBOARD
-    /* Keep keyboard disabled by default to lower LVGL heap usage on K210. */
-    s_kb = NULL;
+    s_kb = lv_keyboard_create(lv_layer_top());
+    lv_obj_set_size(s_kb, 320, 110);
+    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
 #endif
 
     s_clock_label = lv_label_create(scr);

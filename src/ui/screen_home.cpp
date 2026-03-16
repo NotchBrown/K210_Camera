@@ -110,7 +110,7 @@ static void app_file_manager_cb(lv_event_t *event) {
 
 static void app_not_migrated_cb(lv_event_t *event) {
     LV_UNUSED(event);
-    show_home_tip("This app page is not migrated yet.");
+    show_home_tip("");
 }
 
 static void calendar_pick_cb(lv_event_t *event) {

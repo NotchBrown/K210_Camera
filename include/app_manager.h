@@ -71,6 +71,15 @@ bool app_manager_camera_take_snapshot(void);
 void app_manager_get_system_status(app_system_status_t *status);
 void app_manager_request_storage_check(void);
 void app_manager_request_storage_format(void);
+bool app_manager_storage_list_root(char *out, uint32_t out_len);
+bool app_manager_storage_list_dir(const char *path, char *out, uint32_t out_len);
+bool app_manager_storage_mkdir(const char *path, char *msg, uint32_t msg_len);
+bool app_manager_storage_delete(const char *path, char *msg, uint32_t msg_len);
+bool app_manager_storage_copy(const char *from, const char *to, char *msg, uint32_t msg_len);
+bool app_manager_storage_rename(const char *from, const char *to, char *msg, uint32_t msg_len);
+bool app_manager_storage_touch_file(const char *path, char *msg, uint32_t msg_len);
 
+/* Wake up the background service task immediately (non-blocking) */
+void app_manager_wakeup(void);
 /* 后台任务：独立于 LVGL 线程处理硬件/状态刷新 */
 void app_manager_service_task(void *arg);
