@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include <SdFat.h>
+#include <SD.h>
 
 // Default TF card wiring for Yehuo K210.
 #ifndef APP_SD_CS_PIN
@@ -39,6 +39,8 @@
 bool sd_hw_mount(char *msg, uint32_t msg_len);
 void sd_hw_unmount(void);
 bool sd_hw_is_mounted(void);
+bool sd_hw_card_present(void);
 uint32_t sd_hw_total_kb(void);
 
-SdFat &sd_hw_fs(void);
+SDClass &sd_hw_fs(void);
+SdFile *sd_hw_root_file(void);

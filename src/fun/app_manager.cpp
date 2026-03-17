@@ -13,7 +13,7 @@
 #include "screen_file_manager.h"
 #include "screen_home.h"
 #include "screen_settings.h"
-#include "storage_service.h"
+#include "sd_storage_service.h"
 
 /* ── 全局状态 ────────────────────────────────────────────── */
 static app_screen_id_t s_current_id  = SCREEN_ID_HOME;
@@ -33,34 +33,6 @@ static app_system_status_t s_system_status = {
     false, false, 0, 0, "Storage is not checked yet."
 };
 
-static volatile bool s_storage_check_req = false;
-static volatile bool s_storage_format_req = false;
-static TaskHandle_t s_service_task_handle = NULL;
-
-typedef enum {
-    STORAGE_OP_NONE = 0,
-    STORAGE_OP_LIST_ROOT,
-    STORAGE_OP_LIST_DIR,
-    STORAGE_OP_MKDIR,
-    STORAGE_OP_DELETE,
-    STORAGE_OP_COPY,
-    STORAGE_OP_RENAME,
-    STORAGE_OP_TOUCH_FILE,
-} storage_op_t;
-
-typedef struct {
-    bool pending;
-    bool result;
-    storage_op_t op;
-    TaskHandle_t requester;
-    char path1[128];
-    char path2[128];
-    char *out;
-    uint32_t out_len;
-} storage_request_t;
-
-static storage_request_t s_storage_req = { false, false, STORAGE_OP_NONE, NULL, "", "", NULL, 0 };
-
 static void state_lock(void) {
     if (s_lock) {
         (void)xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -71,92 +43,6 @@ static void state_unlock(void) {
     if (s_lock) {
         (void)xSemaphoreGive(s_lock);
     }
-}
-
-static bool dispatch_storage_op(storage_op_t op,
-                                const char *path1,
-                                const char *path2,
-                                char *out,
-                                uint32_t out_len) {
-    switch (op) {
-        case STORAGE_OP_LIST_ROOT:
-            return storage_service_list_root(out, out_len);
-        case STORAGE_OP_LIST_DIR:
-            return storage_service_list_dir(path1, out, out_len);
-        case STORAGE_OP_MKDIR:
-            return storage_service_mkdir(path1, out, out_len);
-        case STORAGE_OP_DELETE:
-            return storage_service_delete(path1, out, out_len);
-        case STORAGE_OP_COPY:
-            return storage_service_copy(path1, path2, out, out_len);
-        case STORAGE_OP_RENAME:
-            return storage_service_rename(path1, path2, out, out_len);
-        case STORAGE_OP_TOUCH_FILE:
-            return storage_service_touch_file(path1, out, out_len);
-        case STORAGE_OP_NONE:
-        default:
-            if (out && out_len > 0) {
-                snprintf(out, out_len, "%s", "Unsupported op");
-            }
-            return false;
-    }
-}
-
-static bool request_storage_op(storage_op_t op,
-                               const char *path1,
-                               const char *path2,
-                               char *out,
-                               uint32_t out_len) {
-    TaskHandle_t self = xTaskGetCurrentTaskHandle();
-
-    if (!s_service_task_handle || self == s_service_task_handle) {
-        return dispatch_storage_op(op, path1, path2, out, out_len);
-    }
-
-    state_lock();
-    if (s_storage_req.pending) {
-        state_unlock();
-        if (out && out_len > 0) {
-            snprintf(out, out_len, "%s", "Storage service busy");
-        }
-        return false;
-    }
-
-    s_storage_req.pending = true;
-    s_storage_req.result = false;
-    s_storage_req.op = op;
-    s_storage_req.requester = self;
-    s_storage_req.out = out;
-    s_storage_req.out_len = out_len;
-    snprintf(s_storage_req.path1, sizeof(s_storage_req.path1), "%s", path1 ? path1 : "");
-    snprintf(s_storage_req.path2, sizeof(s_storage_req.path2), "%s", path2 ? path2 : "");
-    state_unlock();
-
-    app_manager_wakeup();
-
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
-        state_lock();
-        s_storage_req.pending = false;
-        s_storage_req.op = STORAGE_OP_NONE;
-        s_storage_req.requester = NULL;
-        s_storage_req.out = NULL;
-        s_storage_req.out_len = 0;
-        state_unlock();
-
-        if (out && out_len > 0) {
-            snprintf(out, out_len, "%s", "Storage op timeout");
-        }
-        return false;
-    }
-
-    state_lock();
-    bool ok = s_storage_req.result;
-    s_storage_req.op = STORAGE_OP_NONE;
-    s_storage_req.requester = NULL;
-    s_storage_req.out = NULL;
-    s_storage_req.out_len = 0;
-    state_unlock();
-    return ok;
 }
 
 static bool is_leap_year(int16_t year) {
@@ -342,59 +228,56 @@ bool app_manager_camera_take_snapshot(void) {
 }
 
 void app_manager_get_system_status(app_system_status_t *status) {
+    sd_storage_status_t ss;
+    sd_storage_service_get_status(&ss);
+
     state_lock();
+    s_system_status.storage_checked = ss.checked;
+    s_system_status.storage_available = ss.available;
+    s_system_status.storage_total_kb = ss.total_kb;
+    s_system_status.storage_free_kb = ss.free_kb;
+    snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+             "%s", ss.message);
     *status = s_system_status;
     state_unlock();
 }
 
 void app_manager_request_storage_check(void) {
-    state_lock();
-    s_storage_check_req = true;
-    s_system_status.storage_checked = false;
-    snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-             "%s", "Checking storage...");
-    state_unlock();
     APP_LOGI("AppMgr: request check queued");
-    app_manager_wakeup();
+    sd_storage_service_request_check();
 }
 
 void app_manager_request_storage_format(void) {
-    state_lock();
-    s_storage_format_req = true;
-    s_system_status.storage_checked = false;
-    snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-             "%s", "Formatting storage...");
-    state_unlock();
     APP_LOGI("AppMgr: request format queued");
-    app_manager_wakeup();
+    sd_storage_service_request_format();
 }
 
 bool app_manager_storage_list_root(char *out, uint32_t out_len) {
-    return request_storage_op(STORAGE_OP_LIST_ROOT, NULL, NULL, out, out_len);
+    return sd_storage_service_list_root(out, out_len);
 }
 
 bool app_manager_storage_list_dir(const char *path, char *out, uint32_t out_len) {
-    return request_storage_op(STORAGE_OP_LIST_DIR, path, NULL, out, out_len);
+    return sd_storage_service_list_dir(path, out, out_len);
 }
 
 bool app_manager_storage_mkdir(const char *path, char *msg, uint32_t msg_len) {
-    return request_storage_op(STORAGE_OP_MKDIR, path, NULL, msg, msg_len);
+    return sd_storage_service_mkdir(path, msg, msg_len);
 }
 
 bool app_manager_storage_delete(const char *path, char *msg, uint32_t msg_len) {
-    return request_storage_op(STORAGE_OP_DELETE, path, NULL, msg, msg_len);
+    return sd_storage_service_delete(path, msg, msg_len);
 }
 
 bool app_manager_storage_copy(const char *from, const char *to, char *msg, uint32_t msg_len) {
-    return request_storage_op(STORAGE_OP_COPY, from, to, msg, msg_len);
+    return sd_storage_service_copy(from, to, msg, msg_len);
 }
 
 bool app_manager_storage_rename(const char *from, const char *to, char *msg, uint32_t msg_len) {
-    return request_storage_op(STORAGE_OP_RENAME, from, to, msg, msg_len);
+    return sd_storage_service_rename(from, to, msg, msg_len);
 }
 
 bool app_manager_storage_touch_file(const char *path, char *msg, uint32_t msg_len) {
-    return request_storage_op(STORAGE_OP_TOUCH_FILE, path, NULL, msg, msg_len);
+    return sd_storage_service_touch_file(path, msg, msg_len);
 }
 
 void app_manager_navigate_to(app_screen_id_t id) {
@@ -450,7 +333,7 @@ void app_manager_init(void) {
     s_system_status.storage_free_kb = 0;
     snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
              "%s", "Storage auto-check pending...");
-    s_storage_check_req = true;
+    sd_storage_service_request_check();
     
     APP_LOGI("AppMgr: init done, load home");
     app_manager_navigate_to(SCREEN_ID_HOME);
@@ -459,115 +342,12 @@ void app_manager_init(void) {
 void app_manager_service_task(void *arg) {
     LV_UNUSED(arg);
     uint32_t elapsed_ms = 0;
-    uint32_t storage_retry_ms = 0;
-    bool first_check_pending = true;
     APP_LOGI("AppMgr: service task started");
-    s_service_task_handle = xTaskGetCurrentTaskHandle();
 
     for (;;) {
         /* wait for notification or timeout (200ms) */
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(200));
         elapsed_ms += 200U;
-
-        bool do_format = false;
-        bool do_check = false;
-        bool storage_available = false;
-
-        state_lock();
-        if (s_storage_format_req) {
-            s_storage_format_req = false;
-            do_format = true;
-        } else if (s_storage_check_req) {
-            s_storage_check_req = false;
-            do_check = true;
-        }
-        storage_available = s_system_status.storage_available;
-        state_unlock();
-
-        // Run first check immediately after task start.
-        if (!do_format && !do_check && first_check_pending) {
-            first_check_pending = false;
-            do_check = true;
-            APP_LOGI("AppMgr: first storage check");
-        }
-
-        // Auto-retry storage check in background until available.
-        if (!do_format && !do_check && !storage_available) {
-            storage_retry_ms += 200U;
-            if (storage_retry_ms >= 3000U) {
-                storage_retry_ms = 0;
-                do_check = true;
-                state_lock();
-                snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-                         "%s", "Auto checking storage...");
-                state_unlock();
-                APP_LOGI("AppMgr: auto storage check");
-            }
-        }
-
-        if (do_format) {
-            APP_LOGI("AppMgr: start storage format");
-            uint32_t total_kb = 0;
-            uint32_t free_kb = 0;
-            char message[96];
-            bool ok = storage_service_format(&total_kb, &free_kb, message, sizeof(message));
-
-            state_lock();
-            s_system_status.storage_checked = true;
-            s_system_status.storage_available = ok;
-            s_system_status.storage_total_kb = total_kb;
-            s_system_status.storage_free_kb = free_kb;
-            snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-                     "%s", message);
-            state_unlock();
-            APP_LOGI("Storage format done: ok=%d msg=%s", ok ? 1 : 0, message);
-        } else if (do_check) {
-            APP_LOGI("AppMgr: start storage check");
-            uint32_t total_kb = 0;
-            uint32_t free_kb = 0;
-            char message[96];
-            bool ok = storage_service_check(&total_kb, &free_kb, message, sizeof(message));
-
-            state_lock();
-            s_system_status.storage_checked = true;
-            s_system_status.storage_available = ok;
-            s_system_status.storage_total_kb = total_kb;
-            s_system_status.storage_free_kb = free_kb;
-            snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-                     "%s", message);
-            state_unlock();
-            APP_LOGI("Storage check done: ok=%d msg=%s", ok ? 1 : 0, message);
-            if (ok) {
-                storage_retry_ms = 0;
-            }
-        }
-
-        storage_request_t req_local = { false, false, STORAGE_OP_NONE, NULL, "", "", NULL, 0 };
-        bool do_req = false;
-
-        state_lock();
-        if (s_storage_req.pending) {
-            req_local = s_storage_req;
-            s_storage_req.pending = false;
-            do_req = true;
-        }
-        state_unlock();
-
-        if (do_req) {
-            bool ok = dispatch_storage_op(req_local.op,
-                                          req_local.path1,
-                                          req_local.path2,
-                                          req_local.out,
-                                          req_local.out_len);
-
-            state_lock();
-            s_storage_req.result = ok;
-            state_unlock();
-
-            if (req_local.requester) {
-                xTaskNotifyGive(req_local.requester);
-            }
-        }
 
         state_lock();
         if (elapsed_ms >= 1000U) {
@@ -577,11 +357,5 @@ void app_manager_service_task(void *arg) {
             }
         }
         state_unlock();
-    }
-}
-
-void app_manager_wakeup(void) {
-    if (s_service_task_handle) {
-        xTaskNotifyGive(s_service_task_handle);
     }
 }

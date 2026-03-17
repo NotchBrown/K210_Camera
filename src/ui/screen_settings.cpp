@@ -34,7 +34,10 @@ static lv_obj_t *s_cb_edge_auto = NULL;
 static lv_obj_t *s_slider_edge_val = NULL;
 
 static lv_timer_t *s_refresh_timer = NULL;
+static lv_timer_t *s_storage_timer = NULL;
 static app_profile_t s_profile;
+
+static void refresh_storage_text(void);
 
 static void refresh_footer_clock(void) {
     app_datetime_t dt;
@@ -53,9 +56,7 @@ static void clock_timer_cb(lv_timer_t *timer) {
     refresh_footer_clock();
 
     if (s_storage_status_label) {
-        app_system_status_t status;
-        app_manager_get_system_status(&status);
-        lv_label_set_text(s_storage_status_label, status.storage_message);
+        refresh_storage_text();
     }
 }
 
@@ -186,7 +187,21 @@ static void refresh_storage_text(void) {
     }
     app_system_status_t status;
     app_manager_get_system_status(&status);
-    lv_label_set_text(s_storage_status_label, status.storage_message);
+    
+    char buf[128];
+    if (status.storage_checked) {
+        if (status.storage_available) {
+            lv_snprintf(buf, sizeof(buf), "SD Card: Available\nTotal: %d MB\nFree: %d MB\n\n%s", 
+                       (int)(status.storage_total_kb / 1024), 
+                       (int)(status.storage_free_kb / 1024), 
+                       status.storage_message);
+        } else {
+            lv_snprintf(buf, sizeof(buf), "SD Card: Not Available\n\n%s", status.storage_message);
+        }
+    } else {
+        lv_snprintf(buf, sizeof(buf), "%s", status.storage_message);
+    }
+    lv_label_set_text(s_storage_status_label, buf);
 }
 
 static void storage_check_cb(lv_event_t *event) {
@@ -619,7 +634,7 @@ static void build_system_tab(lv_obj_t *tab) {
     lv_label_set_text(btn_format_label, "Format");
     lv_obj_center(btn_format_label);
 
-    lv_menu_set_page(menu, info_page);
+    lv_menu_set_page(menu, storage_page);
     refresh_storage_text();
 }
 

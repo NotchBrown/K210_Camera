@@ -81,8 +81,5 @@ bool app_manager_storage_delete(const char *path, char *msg, uint32_t msg_len);
 bool app_manager_storage_copy(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool app_manager_storage_rename(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool app_manager_storage_touch_file(const char *path, char *msg, uint32_t msg_len);
-
-/* Wake up the background service task immediately (non-blocking) */
-void app_manager_wakeup(void);
 /* 后台任务：独立于 LVGL 线程处理硬件/状态刷新 */
 void app_manager_service_task(void *arg);

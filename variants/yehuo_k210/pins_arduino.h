@@ -37,6 +37,7 @@ extern class UARTClass Serial3;
 #define SDCARD_MIS_PIN       9
 #define SDCARD_MOS_PIN       7
 #define SDCARD_CSX_PIN       6
+#define SDCARD_DET_PIN       31
 
 /* Camera */
 #define CAMERA_PCLK_PIN     23

@@ -82,7 +82,19 @@ static void browser_item_full_path(const char *item_text, char *out, size_t out_
         if (strcmp(s_browser_fs_path, "/") == 0) {
             lv_snprintf(out, out_len, "%s", item_text);
         } else {
-            lv_snprintf(out, out_len, "%s%s", s_browser_fs_path, item_text);
+            // 避免路径中出现双斜杠
+            if (s_browser_fs_path[strlen(s_browser_fs_path) - 1] == '/' && item_text[0] == '/') {
+                lv_snprintf(out, out_len, "%s%s", s_browser_fs_path, item_text + 1);
+            } else {
+                lv_snprintf(out, out_len, "%s%s", s_browser_fs_path, item_text);
+            }
+        }
+    } else {
+        // 处理非以斜杠开头的文件名
+        if (strcmp(s_browser_fs_path, "/") == 0) {
+            lv_snprintf(out, out_len, "/%s", item_text);
+        } else {
+            lv_snprintf(out, out_len, "%s/%s", s_browser_fs_path, item_text);
         }
     }
 }
@@ -247,7 +259,12 @@ static void browser_item_cb(lv_event_t *event) {
         if (strcmp(s_browser_fs_path, "/") == 0) {
             lv_snprintf(next_path, sizeof(next_path), "%s", text);
         } else {
-            lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text);
+            // 避免路径中出现双斜杠
+            if (s_browser_fs_path[strlen(s_browser_fs_path) - 1] == '/' && text[0] == '/') {
+                lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text + 1);
+            } else {
+                lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text);
+            }
         }
         browser_set_path(next_path);
         APP_LOGI("FileManager: enter dir %s", s_browser_fs_path);
@@ -285,8 +302,16 @@ static void append_browser_lines(const char *text) {
             line[len] = '\0';
 
             if (strncmp(line, "DIR ", 4) == 0) {
-                (void)browser_append_dir_item(line + 4);
+                // 确保目录名以斜杠开头
+                if (line[4] == '/') {
+                    (void)browser_append_dir_item(line + 4);
+                } else {
+                    char dir_path[96];
+                    lv_snprintf(dir_path, sizeof(dir_path), "/%s", line + 4);
+                    (void)browser_append_dir_item(dir_path);
+                }
             } else if (strncmp(line, "FILE", 4) == 0) {
+                // 确保文件名正确处理
                 lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_FILE, line + 5);
                 lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
                 lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -308,11 +333,16 @@ static void refresh_file_list(void) {
         return;
     }
 
-    lv_obj_clean(s_file_list);
-    browser_set_path_label();
-
+    // 保存当前状态，避免不必要的刷新
     app_system_status_t status;
     app_manager_get_system_status(&status);
+    
+    // 先更新路径标签
+    browser_set_path_label();
+    
+    // 清空列表
+    lv_obj_clean(s_file_list);
+
     if (!status.storage_checked) {
         lv_list_add_button(s_file_list, LV_SYMBOL_REFRESH, "Checking storage...");
         return;
@@ -326,13 +356,14 @@ static void refresh_file_list(void) {
             return;
         }
 
-        if (s_browser_fs_path[0] != '\0') {
-            lv_obj_t *btn_back = lv_list_add_button(s_file_list, LV_SYMBOL_LEFT, "...");
-            lv_obj_add_event_cb(btn_back, browser_item_cb, LV_EVENT_CLICKED, NULL);
-        }
+        // 添加返回上级目录按钮
+        lv_obj_t *btn_back = lv_list_add_button(s_file_list, LV_SYMBOL_LEFT, "...");
+        lv_obj_add_event_cb(btn_back, browser_item_cb, LV_EVENT_CLICKED, NULL);
 
+        // 限制单次读取的文件列表大小，避免内存占用过高
         char listing[1024];
         if (app_manager_storage_list_dir(s_browser_fs_path, listing, sizeof(listing))) {
+            // 优化文件列表添加过程
             append_browser_lines(listing);
             set_op_result("", false);
         } else {
@@ -346,6 +377,9 @@ static void refresh_file_list(void) {
         lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
         set_op_result(status.storage_message, true);
     }
+    
+    // 立即刷新界面，提高响应速度
+    lv_refr_now(NULL);
 }
 
 static void apply_tabview_style(lv_obj_t *tabview) {
@@ -403,11 +437,20 @@ static void refresh_footer_clock(void) {
 
 static void timer_cb(lv_timer_t *timer) {
     LV_UNUSED(timer);
-    refresh_footer_clock();
+    
+    // 只在需要时刷新时钟
+    static uint8_t last_minute = 0;
+    app_datetime_t dt;
+    app_manager_get_datetime(&dt);
+    if (dt.minute != last_minute) {
+        last_minute = dt.minute;
+        refresh_footer_clock();
+    }
 
     app_system_status_t status;
     app_manager_get_system_status(&status);
 
+    // 优化存储检查逻辑
     if (status.storage_checked && !status.storage_available) {
         s_retry_sec++;
         if (s_retry_sec >= 10U) {
@@ -418,6 +461,7 @@ static void timer_cb(lv_timer_t *timer) {
         s_retry_sec = 0;
     }
 
+    // 只有在存储状态确实改变时才刷新文件列表
     if (status.storage_available != s_last_storage_available ||
         status.storage_checked != s_last_storage_checked) {
         s_last_storage_available = status.storage_available;

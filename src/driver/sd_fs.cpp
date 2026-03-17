@@ -2,7 +2,7 @@
 
 #include "sd_hw.h"
 
-#include <SdFat.h>
+#include <SD.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +16,10 @@ void set_text(char *out, uint32_t out_len, const char *text) {
     snprintf(out, out_len, "%s", text ? text : "");
 }
 
+SDClass &fs(void) {
+    return sd_hw_fs();
+}
+
 bool ensure_mounted(char *msg, uint32_t msg_len) {
     if (sd_hw_is_mounted()) {
         return true;
@@ -24,36 +28,34 @@ bool ensure_mounted(char *msg, uint32_t msg_len) {
 }
 
 bool normalize_path(const char *in, char *out, size_t out_len) {
-    if (!out || out_len == 0) {
+    if (!out || out_len < 2) {
         return false;
     }
-    out[0] = '\0';
 
     if (!in || in[0] == '\0') {
-        snprintf(out, out_len, "%s", "/");
+        snprintf(out, out_len, "/");
         return true;
     }
 
-    const char *p = in;
-    while (*p == ' ') {
-        p++;
+    while (*in == ' ') {
+        in++;
     }
 
-    if (*p == '\0') {
-        snprintf(out, out_len, "%s", "/");
+    if (*in == '\0') {
+        snprintf(out, out_len, "/");
         return true;
     }
 
-    if (strncmp(p, "/SD/", 4) == 0) {
-        p += 3;
-    } else if (strcmp(p, "/SD") == 0) {
-        p = "/";
+    if (strncmp(in, "/SD/", 4) == 0) {
+        in += 3;
+    } else if (strcmp(in, "/SD") == 0) {
+        in = "/";
     }
 
-    if (*p != '/') {
-        snprintf(out, out_len, "/%s", p);
+    if (*in != '/') {
+        snprintf(out, out_len, "/%s", in);
     } else {
-        snprintf(out, out_len, "%s", p);
+        snprintf(out, out_len, "%s", in);
     }
 
     size_t n = strlen(out);
@@ -61,6 +63,7 @@ bool normalize_path(const char *in, char *out, size_t out_len) {
         out[n - 1] = '\0';
         n--;
     }
+
     return true;
 }
 
@@ -95,11 +98,11 @@ bool is_dir_path(const char *path, bool *is_dir) {
     if (is_dir) {
         *is_dir = false;
     }
-    SdFile f;
-    if (!f.open(path, O_RDONLY)) {
+    File f = fs().open(path);
+    if (!f) {
         return false;
     }
-    bool d = f.isDir();
+    bool d = f.isDirectory();
     f.close();
     if (is_dir) {
         *is_dir = d;
@@ -108,21 +111,25 @@ bool is_dir_path(const char *path, bool *is_dir) {
 }
 
 bool copy_file_data(const char *from, const char *to) {
-    SdFile src;
-    if (!src.open(from, O_RDONLY)) {
+    File src = fs().open(from, FILE_READ);
+    if (!src) {
         return false;
     }
 
-    SdFile dst;
-    if (!dst.open(to, O_WRONLY | O_CREAT | O_TRUNC)) {
+    if (fs().exists(to)) {
+        (void)fs().remove(to);
+    }
+
+    File dst = fs().open(to, FILE_WRITE);
+    if (!dst) {
         src.close();
         return false;
     }
 
-    uint8_t buf[1024];
+    uint8_t buf[512];
     bool ok = true;
     while (true) {
-        int n = src.read(buf, sizeof(buf));
+        int n = src.read(buf, (uint32_t)sizeof(buf));
         if (n < 0) {
             ok = false;
             break;
@@ -130,7 +137,7 @@ bool copy_file_data(const char *from, const char *to) {
         if (n == 0) {
             break;
         }
-        if (dst.write(buf, (size_t)n) != (size_t)n) {
+        if ((int)dst.write(buf, (uint32_t)n) != n) {
             ok = false;
             break;
         }
@@ -151,26 +158,30 @@ bool copy_tree(const char *from, const char *to) {
         return copy_file_data(from, to);
     }
 
-    SdFat &fs = sd_hw_fs();
-    if (!fs.exists(to) && !fs.mkdir(to, true)) {
+    if (!fs().exists(to) && !fs().mkdir(to)) {
         return false;
     }
 
-    SdFile dir;
-    if (!dir.open(from, O_RDONLY) || !dir.isDir()) {
+    File dir = fs().open(from);
+    if (!dir || !dir.isDirectory()) {
         dir.close();
         return false;
     }
 
-    SdFile child;
-    char name[96];
+    File child;
+    char name[64];
     bool ok = true;
-    while (child.openNext(&dir, O_RDONLY)) {
-        name[0] = '\0';
-        child.getName(name, sizeof(name));
+    while (true) {
+        child = dir.openNextFile();
+        if (!child) {
+            break;
+        }
+
+        snprintf(name, sizeof(name), "%s", child.name());
+        bool child_is_dir = child.isDirectory();
+        child.close();
 
         if (name[0] == '\0' || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-            child.close();
             continue;
         }
 
@@ -179,8 +190,8 @@ bool copy_tree(const char *from, const char *to) {
         path_join(from, name, src_child, sizeof(src_child));
         path_join(to, name, dst_child, sizeof(dst_child));
 
-        child.close();
-        if (!copy_tree(src_child, dst_child)) {
+        bool child_ok = child_is_dir ? copy_tree(src_child, dst_child) : copy_file_data(src_child, dst_child);
+        if (!child_ok) {
             ok = false;
             break;
         }
@@ -196,32 +207,37 @@ bool remove_tree(const char *path) {
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
     if (!is_dir) {
-        return fs.remove(path);
+        return fs().remove(path);
     }
 
-    SdFile dir;
-    if (!dir.open(path, O_RDONLY) || !dir.isDir()) {
+    File dir = fs().open(path);
+    if (!dir || !dir.isDirectory()) {
         dir.close();
         return false;
     }
 
-    SdFile child;
-    char name[96];
+    File child;
+    char name[64];
     bool ok = true;
-    while (child.openNext(&dir, O_RDONLY)) {
-        name[0] = '\0';
-        child.getName(name, sizeof(name));
+    while (true) {
+        child = dir.openNextFile();
+        if (!child) {
+            break;
+        }
+
+        snprintf(name, sizeof(name), "%s", child.name());
+        bool child_is_dir = child.isDirectory();
+        child.close();
+
         if (name[0] == '\0' || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-            child.close();
             continue;
         }
 
         char full[192];
         path_join(path, name, full, sizeof(full));
-        child.close();
-        if (!remove_tree(full)) {
+        bool child_ok = child_is_dir ? remove_tree(full) : fs().remove(full);
+        if (!child_ok) {
             ok = false;
             break;
         }
@@ -231,7 +247,7 @@ bool remove_tree(const char *path) {
     if (!ok) {
         return false;
     }
-    return fs.rmdir(path);
+    return fs().rmdir(path);
 }
 
 }  // namespace
@@ -248,47 +264,21 @@ bool sd_fs_check(uint32_t *total_kb, uint32_t *free_kb, char *msg, uint32_t msg_
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
-    uint32_t total = sd_hw_total_kb();
-    uint32_t free_space = 0;
-
-    uint32_t fcc = fs.freeClusterCount();
-    uint32_t bpc = fs.bytesPerCluster();
-    if (fcc > 0 && bpc > 0) {
-        free_space = (uint32_t)(((uint64_t)fcc * (uint64_t)bpc) / 1024ULL);
-    }
-
-    if (total_kb) {
-        *total_kb = total;
-    }
-    if (free_kb) {
-        *free_kb = free_space;
-    }
-
-    uint32_t used = (total >= free_space) ? (total - free_space) : 0;
     if (msg && msg_len > 0) {
-        snprintf(msg, msg_len, "SD OK T:%luKB U:%luKB F:%luKB",
-                 (unsigned long)total, (unsigned long)used, (unsigned long)free_space);
+        snprintf(msg, msg_len, "SD mounted (capacity unknown)");
     }
     return true;
 }
 
 bool sd_fs_format(uint32_t *total_kb, uint32_t *free_kb, char *msg, uint32_t msg_len) {
-    if (!ensure_mounted(msg, msg_len)) {
-        return false;
+    if (total_kb) {
+        *total_kb = 0;
     }
-
-    SdFat &fs = sd_hw_fs();
-    if (!fs.format()) {
-        set_text(msg, msg_len, "Format failed");
-        return false;
+    if (free_kb) {
+        *free_kb = 0;
     }
-
-    sd_hw_unmount();
-    if (!sd_hw_mount(msg, msg_len)) {
-        return false;
-    }
-    return sd_fs_check(total_kb, free_kb, msg, msg_len);
+    set_text(msg, msg_len, "Format unsupported in SD(k210)");
+    return false;
 }
 
 bool sd_fs_list_root(char *out, uint32_t out_len) {
@@ -308,40 +298,100 @@ bool sd_fs_list_dir(const char *path, char *out, uint32_t out_len) {
     }
 
     char norm[128];
-    normalize_path(path, norm, sizeof(norm));
-
-    SdFile dir;
-    if (!dir.open(norm, O_RDONLY) || !dir.isDir()) {
-        dir.close();
-        set_text(out, out_len, "Open dir failed");
+    if (!normalize_path(path, norm, sizeof(norm))) {
+        set_text(out, out_len, "Invalid path");
         return false;
     }
 
-    SdFile entry;
-    char name[96];
+    SdFile *root = sd_hw_root_file();
+    if (!root) {
+        set_text(out, out_len, "Root not ready");
+        return false;
+    }
+
+    SdFile d1;
+    SdFile d2;
+    SdFile *parent = root;
+    SdFile *child = &d1;
+    SdFile *current = root;
+
+    if (strcmp(norm, "/") != 0) {
+        unsigned int offset = 0;
+        char comp[13];
+
+        while (true) {
+            int n = 0;
+            if (norm[offset] == '/') {
+                offset++;
+            }
+            while (norm[offset] != '\0' && norm[offset] != '/' && n < 12) {
+                comp[n++] = norm[offset++];
+            }
+            comp[n] = '\0';
+
+            if (n == 0) {
+                break;
+            }
+
+            if (!child->open(*parent, comp, O_READ)) {
+                if (parent != root) {
+                    parent->close();
+                }
+                set_text(out, out_len, "Open dir failed");
+                return false;
+            }
+
+            if (parent != root) {
+                parent->close();
+            }
+
+            current = child;
+            parent = child;
+            child = (child == &d1) ? &d2 : &d1;
+        }
+
+        if (!current->isDir()) {
+            current->close();
+            set_text(out, out_len, "Open dir failed");
+            return false;
+        }
+    }
+
+    current->rewind();
+
+    dir_t p;
+    char name[13];
+    char line[128];
     bool ok = true;
-    while (entry.openNext(&dir, O_RDONLY)) {
-        name[0] = '\0';
-        entry.getName(name, sizeof(name));
-        if (name[0] == '\0' || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-            entry.close();
+    while (current->readDir(&p) > 0) {
+        if (p.name[0] == DIR_NAME_FREE) {
+            break;
+        }
+        if (p.name[0] == DIR_NAME_DELETED || p.name[0] == '.') {
+            continue;
+        }
+        if (!DIR_IS_FILE_OR_SUBDIR(&p)) {
             continue;
         }
 
-        char line[128];
-        if (entry.isDir()) {
+        current->dirName(p, name);
+        if (DIR_IS_SUBDIR(&p)) {
             snprintf(line, sizeof(line), "DIR /%s", name);
         } else {
             snprintf(line, sizeof(line), "FILE /%s", name);
         }
-        entry.close();
 
         if (!append_line(out, out_len, line)) {
             ok = false;
             break;
         }
     }
-    dir.close();
+
+    if (current != root) {
+        current->close();
+    } else {
+        current->rewind();
+    }
 
     if (!ok) {
         set_text(out, out_len, "List buffer too small");
@@ -351,7 +401,10 @@ bool sd_fs_list_dir(const char *path, char *out, uint32_t out_len) {
 
 bool sd_fs_mkdir(const char *path, char *msg, uint32_t msg_len) {
     char norm[128];
-    normalize_path(path, norm, sizeof(norm));
+    if (!normalize_path(path, norm, sizeof(norm))) {
+        set_text(msg, msg_len, "Invalid path");
+        return false;
+    }
 
     if (strcmp(norm, "/") == 0) {
         set_text(msg, msg_len, "Root already exists");
@@ -362,20 +415,22 @@ bool sd_fs_mkdir(const char *path, char *msg, uint32_t msg_len) {
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
-    if (fs.exists(norm)) {
+    if (fs().exists(norm)) {
         set_text(msg, msg_len, "Path already exists");
         return true;
     }
 
-    bool ok = fs.mkdir(norm, true);
+    bool ok = fs().mkdir(norm);
     set_text(msg, msg_len, ok ? "mkdir ok" : "mkdir failed");
     return ok;
 }
 
 bool sd_fs_delete(const char *path, char *msg, uint32_t msg_len) {
     char norm[128];
-    normalize_path(path, norm, sizeof(norm));
+    if (!normalize_path(path, norm, sizeof(norm))) {
+        set_text(msg, msg_len, "Invalid path");
+        return false;
+    }
 
     if (strcmp(norm, "/") == 0) {
         set_text(msg, msg_len, "Delete root is forbidden");
@@ -386,8 +441,7 @@ bool sd_fs_delete(const char *path, char *msg, uint32_t msg_len) {
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
-    if (!fs.exists(norm)) {
+    if (!fs().exists(norm)) {
         set_text(msg, msg_len, "Path not found");
         return false;
     }
@@ -400,16 +454,13 @@ bool sd_fs_delete(const char *path, char *msg, uint32_t msg_len) {
 bool sd_fs_copy(const char *from, const char *to, char *msg, uint32_t msg_len) {
     char src[128];
     char dst[128];
-    normalize_path(from, src, sizeof(src));
-    normalize_path(to, dst, sizeof(dst));
-
-    if (strcmp(src, "/") == 0) {
-        set_text(msg, msg_len, "Copy from root is forbidden");
+    if (!normalize_path(from, src, sizeof(src)) || !normalize_path(to, dst, sizeof(dst))) {
+        set_text(msg, msg_len, "Invalid path");
         return false;
     }
 
-    if (strcmp(dst, "/") == 0) {
-        set_text(msg, msg_len, "Invalid destination");
+    if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0) {
+        set_text(msg, msg_len, "Root copy not allowed");
         return false;
     }
 
@@ -417,13 +468,13 @@ bool sd_fs_copy(const char *from, const char *to, char *msg, uint32_t msg_len) {
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
-    if (!fs.exists(src)) {
+    if (!fs().exists(src)) {
         set_text(msg, msg_len, "Source not found");
         return false;
     }
-    if (fs.exists(dst)) {
-        set_text(msg, msg_len, "Destination already exists");
+
+    if (fs().exists(dst)) {
+        set_text(msg, msg_len, "Destination exists");
         return false;
     }
 
@@ -435,11 +486,13 @@ bool sd_fs_copy(const char *from, const char *to, char *msg, uint32_t msg_len) {
 bool sd_fs_rename(const char *from, const char *to, char *msg, uint32_t msg_len) {
     char src[128];
     char dst[128];
-    normalize_path(from, src, sizeof(src));
-    normalize_path(to, dst, sizeof(dst));
+    if (!normalize_path(from, src, sizeof(src)) || !normalize_path(to, dst, sizeof(dst))) {
+        set_text(msg, msg_len, "Invalid path");
+        return false;
+    }
 
     if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0) {
-        set_text(msg, msg_len, "Invalid rename path");
+        set_text(msg, msg_len, "Root rename not allowed");
         return false;
     }
 
@@ -447,24 +500,28 @@ bool sd_fs_rename(const char *from, const char *to, char *msg, uint32_t msg_len)
         return false;
     }
 
-    SdFat &fs = sd_hw_fs();
-    if (!fs.exists(src)) {
+    if (!fs().exists(src)) {
         set_text(msg, msg_len, "Source not found");
         return false;
     }
-    if (fs.exists(dst)) {
+
+    if (fs().exists(dst)) {
         set_text(msg, msg_len, "Destination exists");
         return false;
     }
 
-    bool ok = fs.rename(src, dst);
+    bool ok = copy_tree(src, dst) && remove_tree(src);
     set_text(msg, msg_len, ok ? "rename ok" : "rename failed");
     return ok;
 }
 
 bool sd_fs_touch_file(const char *path, char *msg, uint32_t msg_len) {
     char norm[128];
-    normalize_path(path, norm, sizeof(norm));
+    if (!normalize_path(path, norm, sizeof(norm))) {
+        set_text(msg, msg_len, "Invalid path");
+        return false;
+    }
+
     if (strcmp(norm, "/") == 0) {
         set_text(msg, msg_len, "Invalid file path");
         return false;
@@ -474,11 +531,12 @@ bool sd_fs_touch_file(const char *path, char *msg, uint32_t msg_len) {
         return false;
     }
 
-    SdFile f;
-    bool ok = f.open(norm, O_WRONLY | O_CREAT | O_APPEND);
+    File f = fs().open(norm, FILE_WRITE);
+    bool ok = (bool)f;
     if (ok) {
         f.close();
     }
+
     set_text(msg, msg_len, ok ? "touch ok" : "touch failed");
     return ok;
 }
