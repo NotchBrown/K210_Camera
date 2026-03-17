@@ -29,6 +29,7 @@ typedef struct {
     uint8_t capture_res_index; /* 0..5 */
     uint8_t agc_ceiling_index; /* 0..6 */
     int8_t  ae_level;          /* -2..2 */
+    uint8_t edge_val;          /* 0..255 */
     bool agc;
     bool aec;
     bool awb;
@@ -36,6 +37,8 @@ typedef struct {
     bool test_mode;
     bool h_mirror;
     bool v_flip;
+    bool edge_enh;
+    bool edge_auto;
 } app_camera_settings_t;
 
 typedef struct {

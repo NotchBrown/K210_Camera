@@ -15,21 +15,42 @@ static lv_obj_t *s_file_ta_to = NULL;
 static lv_obj_t *s_folder_ta_from = NULL;
 static lv_obj_t *s_folder_ta_to = NULL;
 static lv_obj_t *s_op_result_label = NULL;
+static lv_obj_t *s_op_result_label_folder = NULL;
 static char s_browser_fs_path[128] = "";
 static bool s_last_storage_available = false;
 static bool s_last_storage_checked = false;
+static uint8_t s_retry_sec = 0;
 
 static void refresh_file_list(void);
 static void browser_item_cb(lv_event_t *event);
 
-static void set_op_result(const char *msg, bool is_error) {
-    if (!s_op_result_label) {
+static void set_ta_from_current_dir(lv_obj_t *ta) {
+    if (!ta) {
         return;
     }
-    lv_label_set_text(s_op_result_label, msg ? msg : "");
-    lv_obj_set_style_text_color(s_op_result_label,
-                                is_error ? lv_color_hex(0xb00020) : lv_color_hex(0x1a7f37),
-                                LV_PART_MAIN);
+    if (s_browser_fs_path[0] == '\0') {
+        lv_textarea_set_text(ta, "/");
+    } else {
+        lv_textarea_set_text(ta, s_browser_fs_path);
+    }
+}
+
+static void set_op_result(const char *msg, bool is_error) {
+    if (!s_op_result_label && !s_op_result_label_folder) {
+        return;
+    }
+    if (s_op_result_label) {
+        lv_label_set_text(s_op_result_label, msg ? msg : "");
+        lv_obj_set_style_text_color(s_op_result_label,
+                                    is_error ? lv_color_hex(0xb00020) : lv_color_hex(0x1a7f37),
+                                    LV_PART_MAIN);
+    }
+    if (s_op_result_label_folder) {
+        lv_label_set_text(s_op_result_label_folder, msg ? msg : "");
+        lv_obj_set_style_text_color(s_op_result_label_folder,
+                                    is_error ? lv_color_hex(0xb00020) : lv_color_hex(0x1a7f37),
+                                    LV_PART_MAIN);
+    }
 }
 
 static bool browser_btn_is_dir(lv_obj_t *btn) {
@@ -234,7 +255,15 @@ static void browser_item_cb(lv_event_t *event) {
         return;
     }
 
-    APP_LOGI("FileManager: file selected %s", text);
+    char full_path[128];
+    browser_item_full_path(text, full_path, sizeof(full_path));
+    if (full_path[0] != '\0') {
+        if (s_file_ta_from) {
+            lv_textarea_set_text(s_file_ta_from, full_path);
+        }
+        APP_LOGI("FileManager: file selected %s", full_path);
+        set_op_result("File selected to From", false);
+    }
 }
 
 static void append_browser_lines(const char *text) {
@@ -305,14 +334,17 @@ static void refresh_file_list(void) {
         char listing[1024];
         if (app_manager_storage_list_dir(s_browser_fs_path, listing, sizeof(listing))) {
             append_browser_lines(listing);
+            set_op_result("", false);
         } else {
-            lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, "List failed");
+            lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, listing[0] ? listing : "List failed");
             lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
-            APP_LOGE("FileManager: list failed path=%s", s_browser_fs_path);
+            APP_LOGE("FileManager: list failed path=%s msg=%s", s_browser_fs_path, listing);
+            set_op_result(listing[0] ? listing : "List failed", true);
         }
     } else {
-        lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, "SD card not available");
+        lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, status.storage_message);
         lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+        set_op_result(status.storage_message, true);
     }
 }
 
@@ -375,6 +407,17 @@ static void timer_cb(lv_timer_t *timer) {
 
     app_system_status_t status;
     app_manager_get_system_status(&status);
+
+    if (status.storage_checked && !status.storage_available) {
+        s_retry_sec++;
+        if (s_retry_sec >= 10U) {
+            s_retry_sec = 0;
+            app_manager_request_storage_check();
+        }
+    } else {
+        s_retry_sec = 0;
+    }
+
     if (status.storage_available != s_last_storage_available ||
         status.storage_checked != s_last_storage_checked) {
         s_last_storage_available = status.storage_available;
@@ -436,6 +479,11 @@ static void file_operation_cb(lv_event_t *event) {
                 return;
             }
         }
+        if ((strcmp(btn_text, "Cut") == 0 || strcmp(btn_text, "Copy") == 0) && strcmp(from_norm, to_norm) == 0) {
+            lv_snprintf(msg, sizeof(msg), "%s", "From and To are the same");
+            set_op_result(msg, true);
+            return;
+        }
 
         if (strcmp(btn_text, "Delete (From)") == 0) {
             ok = app_manager_storage_delete(from_norm, msg, sizeof(msg));
@@ -479,9 +527,23 @@ static void screen_delete_cb(lv_event_t *event) {
     s_folder_ta_from = NULL;
     s_folder_ta_to = NULL;
     s_op_result_label = NULL;
+    s_op_result_label_folder = NULL;
     s_last_storage_available = false;
     s_last_storage_checked = false;
+    s_retry_sec = 0;
     s_browser_fs_path[0] = '\0';
+}
+
+static void quick_fill_from_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    bool is_folder = lv_event_get_user_data(event) != NULL;
+    set_ta_from_current_dir(is_folder ? s_folder_ta_from : s_file_ta_from);
+}
+
+static void quick_fill_to_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    bool is_folder = lv_event_get_user_data(event) != NULL;
+    set_ta_from_current_dir(is_folder ? s_folder_ta_to : s_file_ta_to);
 }
 
 lv_obj_t *screen_file_manager_create(void) {
@@ -560,9 +622,17 @@ lv_obj_t *screen_file_manager_create(void) {
 
     s_file_ta_from = lv_textarea_create(op_file_cont);
     lv_obj_set_pos(s_file_ta_from, 20, 30);
-    lv_obj_set_size(s_file_ta_from, 160, 30);
+    lv_obj_set_size(s_file_ta_from, 120, 30);
     lv_textarea_set_one_line(s_file_ta_from, true);
     lv_textarea_set_text(s_file_ta_from, "");
+
+    lv_obj_t *btn_file_from_cur = lv_button_create(op_file_cont);
+    lv_obj_set_pos(btn_file_from_cur, 145, 30);
+    lv_obj_set_size(btn_file_from_cur, 42, 30);
+    lv_obj_add_event_cb(btn_file_from_cur, quick_fill_from_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *btn_file_from_cur_label = lv_label_create(btn_file_from_cur);
+    lv_label_set_text(btn_file_from_cur_label, "Cur");
+    lv_obj_center(btn_file_from_cur_label);
 
     lv_obj_t *label_to = lv_label_create(op_file_cont);
     lv_obj_set_pos(label_to, 10, 70);
@@ -570,9 +640,17 @@ lv_obj_t *screen_file_manager_create(void) {
 
     s_file_ta_to = lv_textarea_create(op_file_cont);
     lv_obj_set_pos(s_file_ta_to, 20, 90);
-    lv_obj_set_size(s_file_ta_to, 160, 30);
+    lv_obj_set_size(s_file_ta_to, 120, 30);
     lv_textarea_set_one_line(s_file_ta_to, true);
     lv_textarea_set_text(s_file_ta_to, "");
+
+    lv_obj_t *btn_file_to_cur = lv_button_create(op_file_cont);
+    lv_obj_set_pos(btn_file_to_cur, 145, 90);
+    lv_obj_set_size(btn_file_to_cur, 42, 30);
+    lv_obj_add_event_cb(btn_file_to_cur, quick_fill_to_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *btn_file_to_cur_label = lv_label_create(btn_file_to_cur);
+    lv_label_set_text(btn_file_to_cur_label, "Cur");
+    lv_obj_center(btn_file_to_cur_label);
 
     s_op_result_label = lv_label_create(op_file_cont);
     lv_obj_set_pos(s_op_result_label, 10, 122);
@@ -603,9 +681,17 @@ lv_obj_t *screen_file_manager_create(void) {
 
     s_folder_ta_from = lv_textarea_create(op_folder_cont);
     lv_obj_set_pos(s_folder_ta_from, 20, 30);
-    lv_obj_set_size(s_folder_ta_from, 160, 30);
+    lv_obj_set_size(s_folder_ta_from, 120, 30);
     lv_textarea_set_one_line(s_folder_ta_from, true);
     lv_textarea_set_text(s_folder_ta_from, "");
+
+    lv_obj_t *btn_fold_from_cur = lv_button_create(op_folder_cont);
+    lv_obj_set_pos(btn_fold_from_cur, 145, 30);
+    lv_obj_set_size(btn_fold_from_cur, 42, 30);
+    lv_obj_add_event_cb(btn_fold_from_cur, quick_fill_from_cb, LV_EVENT_CLICKED, (void *)1);
+    lv_obj_t *btn_fold_from_cur_label = lv_label_create(btn_fold_from_cur);
+    lv_label_set_text(btn_fold_from_cur_label, "Cur");
+    lv_obj_center(btn_fold_from_cur_label);
 
     lv_obj_t *label_fold_to = lv_label_create(op_folder_cont);
     lv_obj_set_pos(label_fold_to, 10, 70);
@@ -613,14 +699,28 @@ lv_obj_t *screen_file_manager_create(void) {
 
     s_folder_ta_to = lv_textarea_create(op_folder_cont);
     lv_obj_set_pos(s_folder_ta_to, 20, 90);
-    lv_obj_set_size(s_folder_ta_to, 160, 30);
+    lv_obj_set_size(s_folder_ta_to, 120, 30);
     lv_textarea_set_one_line(s_folder_ta_to, true);
     lv_textarea_set_text(s_folder_ta_to, "");
 
+    lv_obj_t *btn_fold_to_cur = lv_button_create(op_folder_cont);
+    lv_obj_set_pos(btn_fold_to_cur, 145, 90);
+    lv_obj_set_size(btn_fold_to_cur, 42, 30);
+    lv_obj_add_event_cb(btn_fold_to_cur, quick_fill_to_cb, LV_EVENT_CLICKED, (void *)1);
+    lv_obj_t *btn_fold_to_cur_label = lv_label_create(btn_fold_to_cur);
+    lv_label_set_text(btn_fold_to_cur_label, "Cur");
+    lv_obj_center(btn_fold_to_cur_label);
+
     static const char *folder_ops[] = {"Copy", "Cut", "\n", "New (To)", "\n", "Delete (From)", ""};
+    s_op_result_label_folder = lv_label_create(op_folder_cont);
+    lv_obj_set_pos(s_op_result_label_folder, 10, 122);
+    lv_obj_set_size(s_op_result_label_folder, 180, 16);
+    lv_label_set_long_mode(s_op_result_label_folder, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(s_op_result_label_folder, "");
+
     lv_obj_t *btnm_folder = lv_buttonmatrix_create(op_folder_cont);
-    lv_obj_set_pos(btnm_folder, 20, 130);
-    lv_obj_set_size(btnm_folder, 160, 100);
+    lv_obj_set_pos(btnm_folder, 20, 142);
+    lv_obj_set_size(btnm_folder, 160, 88);
     lv_buttonmatrix_set_map(btnm_folder, folder_ops);
     apply_operation_btnm_style(btnm_folder);
     lv_obj_add_event_cb(btnm_folder, file_operation_cb, LV_EVENT_VALUE_CHANGED, (void *)1);

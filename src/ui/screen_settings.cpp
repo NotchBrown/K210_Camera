@@ -29,6 +29,9 @@ static lv_obj_t *s_cb_test_mode = NULL;
 static lv_obj_t *s_cb_h_mirror = NULL;
 static lv_obj_t *s_cb_v_flip = NULL;
 static lv_obj_t *s_slider_ae = NULL;
+static lv_obj_t *s_cb_edge_enh = NULL;
+static lv_obj_t *s_cb_edge_auto = NULL;
+static lv_obj_t *s_slider_edge_val = NULL;
 
 static lv_timer_t *s_refresh_timer = NULL;
 static app_profile_t s_profile;
@@ -204,8 +207,16 @@ static bool checkbox_is_checked(lv_obj_t *cb) {
     return lv_obj_has_state(cb, LV_STATE_CHECKED);
 }
 
-static int dropdown_selected(lv_obj_t *dd) {
-    return (int)lv_dropdown_get_selected(dd);
+static uint8_t roller_selected_safe_u8(lv_obj_t *roller, uint8_t fallback) {
+    if (!roller) {
+        return fallback;
+    }
+    uint16_t idx = lv_roller_get_selected(roller);
+    uint16_t cnt = lv_roller_get_option_count(roller);
+    if (cnt == 0U || idx >= cnt) {
+        return fallback;
+    }
+    return (uint8_t)idx;
 }
 
 static void load_camera_settings_to_ui(void) {
@@ -213,13 +224,25 @@ static void load_camera_settings_to_ui(void) {
     app_manager_get_camera_settings(&cfg);
 
     if (s_dd_cap_res) {
-        lv_dropdown_set_selected(s_dd_cap_res, cfg.capture_res_index);
+        uint16_t cnt = lv_roller_get_option_count(s_dd_cap_res);
+        uint16_t idx = cfg.capture_res_index;
+        if (cnt == 0U) idx = 0U;
+        else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
+        lv_roller_set_selected(s_dd_cap_res, idx, LV_ANIM_OFF);
     }
     if (s_dd_agc_ceiling) {
-        lv_dropdown_set_selected(s_dd_agc_ceiling, cfg.agc_ceiling_index);
+        uint16_t cnt = lv_roller_get_option_count(s_dd_agc_ceiling);
+        uint16_t idx = cfg.agc_ceiling_index;
+        if (cnt == 0U) idx = 0U;
+        else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
+        lv_roller_set_selected(s_dd_agc_ceiling, idx, LV_ANIM_OFF);
     }
     if (s_slider_ae) {
-        lv_slider_set_value(s_slider_ae, cfg.ae_level, LV_ANIM_OFF);
+        lv_roller_set_selected(s_slider_ae, (uint16_t)(cfg.ae_level + 2), LV_ANIM_OFF);
+    }
+    if (s_slider_edge_val) {
+        uint16_t idx = (cfg.edge_val >= 255U) ? 32U : (uint16_t)(cfg.edge_val / 8U);
+        lv_roller_set_selected(s_slider_edge_val, idx, LV_ANIM_OFF);
     }
 
     if (s_cb_agc) {
@@ -250,14 +273,30 @@ static void load_camera_settings_to_ui(void) {
         if (cfg.v_flip) lv_obj_add_state(s_cb_v_flip, LV_STATE_CHECKED);
         else lv_obj_clear_state(s_cb_v_flip, LV_STATE_CHECKED);
     }
+    if (s_cb_edge_enh) {
+        if (cfg.edge_enh) lv_obj_add_state(s_cb_edge_enh, LV_STATE_CHECKED);
+        else lv_obj_clear_state(s_cb_edge_enh, LV_STATE_CHECKED);
+    }
+    if (s_cb_edge_auto) {
+        if (cfg.edge_auto) lv_obj_add_state(s_cb_edge_auto, LV_STATE_CHECKED);
+        else lv_obj_clear_state(s_cb_edge_auto, LV_STATE_CHECKED);
+    }
+
 }
 
 static void apply_camera_settings_cb(lv_event_t *event) {
     LV_UNUSED(event);
     app_camera_settings_t cfg;
-    cfg.capture_res_index = (uint8_t)dropdown_selected(s_dd_cap_res);
-    cfg.agc_ceiling_index = (uint8_t)dropdown_selected(s_dd_agc_ceiling);
-    cfg.ae_level = (int8_t)lv_slider_get_value(s_slider_ae);
+    app_manager_get_camera_settings(&cfg);
+
+    cfg.capture_res_index = roller_selected_safe_u8(s_dd_cap_res, cfg.capture_res_index);
+    cfg.agc_ceiling_index = roller_selected_safe_u8(s_dd_agc_ceiling, cfg.agc_ceiling_index);
+    if (s_slider_ae) {
+        cfg.ae_level = (int8_t)roller_read_int(s_slider_ae);
+    }
+    if (s_slider_edge_val) {
+        cfg.edge_val = (uint8_t)roller_read_int(s_slider_edge_val);
+    }
     cfg.agc = checkbox_is_checked(s_cb_agc);
     cfg.aec = checkbox_is_checked(s_cb_aec);
     cfg.awb = checkbox_is_checked(s_cb_awb);
@@ -265,9 +304,54 @@ static void apply_camera_settings_cb(lv_event_t *event) {
     cfg.test_mode = checkbox_is_checked(s_cb_test_mode);
     cfg.h_mirror = checkbox_is_checked(s_cb_h_mirror);
     cfg.v_flip = checkbox_is_checked(s_cb_v_flip);
+    cfg.edge_enh = checkbox_is_checked(s_cb_edge_enh);
+    cfg.edge_auto = checkbox_is_checked(s_cb_edge_auto);
 
     app_manager_set_camera_settings(&cfg);
-    APP_LOGI("Settings: camera settings applied");
+    APP_LOGI("Settings: camera settings applied res=%u agc_ceiling=%u ae=%d edge_val=%u edge_enh=%d edge_auto=%d agc=%d aec=%d awb=%d awb_gain=%d test=%d hm=%d vf=%d",
+             (unsigned)cfg.capture_res_index,
+             (unsigned)cfg.agc_ceiling_index,
+             (int)cfg.ae_level,
+             (unsigned)cfg.edge_val,
+             (int)cfg.edge_enh,
+             (int)cfg.edge_auto,
+             (int)cfg.agc,
+             (int)cfg.aec,
+             (int)cfg.awb,
+             (int)cfg.awb_gain,
+             (int)cfg.test_mode,
+             (int)cfg.h_mirror,
+             (int)cfg.v_flip);
+}
+
+static void camera_widget_debug_cb(lv_event_t *event) {
+    lv_obj_t *obj = lv_event_get_target_obj(event);
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code != LV_EVENT_VALUE_CHANGED) {
+        return;
+    }
+
+    if (obj == s_dd_cap_res) {
+        APP_LOGI("Settings: ui res idx=%u", (unsigned)lv_roller_get_selected(s_dd_cap_res));
+    } else if (obj == s_dd_agc_ceiling) {
+        APP_LOGI("Settings: ui agc_ceiling idx=%u", (unsigned)lv_roller_get_selected(s_dd_agc_ceiling));
+    } else if (obj == s_slider_ae) {
+        APP_LOGI("Settings: ui ae=%d", roller_read_int(s_slider_ae));
+    } else if (obj == s_slider_edge_val) {
+        APP_LOGI("Settings: ui edge_val=%d", roller_read_int(s_slider_edge_val));
+    } else if (obj == s_cb_agc) {
+        APP_LOGI("Settings: ui agc=%d", (int)checkbox_is_checked(s_cb_agc));
+    } else if (obj == s_cb_aec) {
+        APP_LOGI("Settings: ui aec=%d", (int)checkbox_is_checked(s_cb_aec));
+    } else if (obj == s_cb_awb) {
+        APP_LOGI("Settings: ui awb=%d", (int)checkbox_is_checked(s_cb_awb));
+    } else if (obj == s_cb_awb_gain) {
+        APP_LOGI("Settings: ui awb_gain=%d", (int)checkbox_is_checked(s_cb_awb_gain));
+    } else if (obj == s_cb_edge_enh) {
+        APP_LOGI("Settings: ui edge_enh=%d", (int)checkbox_is_checked(s_cb_edge_enh));
+    } else if (obj == s_cb_edge_auto) {
+        APP_LOGI("Settings: ui edge_auto=%d", (int)checkbox_is_checked(s_cb_edge_auto));
+    }
 }
 
 static void build_general_tab(lv_obj_t *tab) {
@@ -556,7 +640,13 @@ static void build_apps_tab(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(sidebar, lv_color_hex(0xf6f6f6), LV_PART_MAIN);
 
     lv_obj_t *camera_page = lv_menu_page_create(menu, NULL);
-    lv_obj_t *camera_cont = lv_menu_cont_create(camera_page);
+    lv_obj_t *camera_cont = lv_obj_create(camera_page);
+    lv_obj_set_pos(camera_cont, 0, 0);
+    lv_obj_set_size(camera_cont, lv_pct(100), 470);
+    lv_obj_set_style_bg_opa(camera_cont, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(camera_cont, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(camera_cont, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(camera_cont, 0, LV_PART_MAIN);
     lv_obj_set_layout(camera_cont, LV_LAYOUT_NONE);
 
     lv_obj_t *entry_camera = lv_menu_cont_create(sidebar);
@@ -568,62 +658,100 @@ static void build_apps_tab(lv_obj_t *tab) {
     lv_obj_set_pos(label_cam_res, 10, 10);
     lv_label_set_text(label_cam_res, "Capture Resolution");
 
-    s_dd_cap_res = lv_dropdown_create(camera_cont);
-    lv_obj_set_pos(s_dd_cap_res, 20, 30);
-    lv_obj_set_size(s_dd_cap_res, 160, 30);
-    lv_dropdown_set_options(s_dd_cap_res,
+    s_dd_cap_res = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_cap_res, 20, 28);
+    lv_obj_set_size(s_dd_cap_res, 160, 48);
+    lv_roller_set_visible_row_count(s_dd_cap_res, 2);
+    lv_roller_set_options(s_dd_cap_res,
         "640*480@24\n"
         "640*480@16\n"
         "320*240@24\n"
         "320*240@16\n"
         "160*120@32\n"
-        "160*120@16");
+        "160*120@16",
+        LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_cap_res, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *label_cont = lv_label_create(camera_cont);
-    lv_obj_set_pos(label_cont, 10, 70);
+    lv_obj_set_pos(label_cont, 10, 92);
     lv_label_set_text(label_cont, "Control");
 
     s_cb_agc = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_agc, 20, 95);
+    lv_obj_set_pos(s_cb_agc, 20, 114);
     lv_checkbox_set_text(s_cb_agc, "AGC");
+    lv_obj_add_event_cb(s_cb_agc, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    s_dd_agc_ceiling = lv_dropdown_create(camera_cont);
-    lv_obj_set_pos(s_dd_agc_ceiling, 90, 90);
-    lv_obj_set_size(s_dd_agc_ceiling, 80, 30);
-    lv_dropdown_set_options(s_dd_agc_ceiling,
-        "2x\n4x\n8x\n16x\n32x\n64x\n128x");
+    s_dd_agc_ceiling = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_agc_ceiling, 90, 110);
+    lv_obj_set_size(s_dd_agc_ceiling, 80, 48);
+    lv_roller_set_visible_row_count(s_dd_agc_ceiling, 2);
+    lv_roller_set_options(s_dd_agc_ceiling,
+        "2\n4\n8\n16\n32\n64\n128",
+        LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_agc_ceiling, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_awb = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_awb, 20, 130);
+    lv_obj_set_pos(s_cb_awb, 20, 164);
     lv_checkbox_set_text(s_cb_awb, "AWB");
+    lv_obj_add_event_cb(s_cb_awb, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_awb_gain = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_awb_gain, 95, 130);
+    lv_obj_set_pos(s_cb_awb_gain, 95, 164);
     lv_checkbox_set_text(s_cb_awb_gain, "AWB Gain");
+    lv_obj_add_event_cb(s_cb_awb_gain, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_aec = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_aec, 20, 160);
+    lv_obj_set_pos(s_cb_aec, 20, 194);
     lv_checkbox_set_text(s_cb_aec, "AEC");
+    lv_obj_add_event_cb(s_cb_aec, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    s_slider_ae = lv_slider_create(camera_cont);
-    lv_obj_set_pos(s_slider_ae, 90, 163);
-    lv_obj_set_size(s_slider_ae, 90, 8);
-    lv_slider_set_range(s_slider_ae, -2, 2);
+    s_slider_ae = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_slider_ae, 90, 188);
+    lv_obj_set_size(s_slider_ae, 80, 48);
+    lv_roller_set_visible_row_count(s_slider_ae, 2);
+    lv_roller_set_options(s_slider_ae, "-2\n-1\n0\n1\n2", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_slider_ae, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_edge = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_edge, 10, 246);
+    lv_label_set_text(label_edge, "Edge");
+
+    s_cb_edge_enh = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_edge_enh, 20, 266);
+    lv_checkbox_set_text(s_cb_edge_enh, "EdgeEnh");
+    lv_obj_add_event_cb(s_cb_edge_enh, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_cb_edge_auto = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_edge_auto, 120, 266);
+    lv_checkbox_set_text(s_cb_edge_auto, "EdgeAuto");
+    lv_obj_add_event_cb(s_cb_edge_auto, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_slider_edge_val = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_slider_edge_val, 20, 292);
+    lv_obj_set_size(s_slider_edge_val, 150, 48);
+    lv_roller_set_visible_row_count(s_slider_edge_val, 2);
+    lv_roller_set_options(s_slider_edge_val,
+        "0\n8\n16\n24\n32\n40\n48\n56\n64\n72\n80\n88\n96\n104\n112\n120\n128\n136\n144\n152\n160\n168\n176\n184\n192\n200\n208\n216\n224\n232\n240\n248\n255",
+        LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_slider_edge_val, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_test_mode = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_test_mode, 20, 191);
+    lv_obj_set_pos(s_cb_test_mode, 20, 352);
     lv_checkbox_set_text(s_cb_test_mode, "Color bar");
+    lv_obj_add_event_cb(s_cb_test_mode, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_h_mirror = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_h_mirror, 20, 221);
+    lv_obj_set_pos(s_cb_h_mirror, 20, 378);
     lv_checkbox_set_text(s_cb_h_mirror, "H mirror");
+    lv_obj_add_event_cb(s_cb_h_mirror, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_v_flip = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_v_flip, 20, 252);
+    lv_obj_set_pos(s_cb_v_flip, 20, 404);
     lv_checkbox_set_text(s_cb_v_flip, "V flip");
+    lv_obj_add_event_cb(s_cb_v_flip, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *btn_apply_cam = lv_button_create(camera_cont);
-    lv_obj_set_pos(btn_apply_cam, 120, 280);
+    lv_obj_set_pos(btn_apply_cam, 118, 434);
     lv_obj_set_size(btn_apply_cam, 64, 24);
     lv_obj_set_style_bg_color(btn_apply_cam, lv_color_hex(0x2195f6), LV_PART_MAIN);
     lv_obj_set_style_border_width(btn_apply_cam, 0, LV_PART_MAIN);
@@ -668,6 +796,9 @@ static void screen_delete_cb(lv_event_t *event) {
     s_cb_h_mirror = NULL;
     s_cb_v_flip = NULL;
     s_slider_ae = NULL;
+    s_cb_edge_enh = NULL;
+    s_cb_edge_auto = NULL;
+    s_slider_edge_val = NULL;
     s_kb = NULL;
     APP_LOGI("Settings: screen delete done");
 }

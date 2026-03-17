@@ -23,9 +23,10 @@ static SemaphoreHandle_t s_lock = NULL;
 static bool           s_rtc_ready = false;
 static app_profile_t  s_profile = { "User", "1145141919810" };
 static app_camera_settings_t s_camera_settings = {
-    2, 3, 0,
+    2, 3, 0, 32,
     true, true, true, false,
-    false, false, false
+    false, false, false,
+    true, true
 };
 static app_camera_state_t s_camera_state = { false, false, 0, 0 };
 static app_system_status_t s_system_status = {
@@ -277,6 +278,21 @@ void app_manager_set_camera_settings(const app_camera_settings_t *settings) {
     state_lock();
     s_camera_settings = s;
     state_unlock();
+
+    APP_LOGI("AppMgr: camera settings saved res=%u agc_ceiling=%u ae=%d edge_val=%u edge_enh=%d edge_auto=%d agc=%d aec=%d awb=%d awb_gain=%d test=%d hm=%d vf=%d",
+             (unsigned)s.capture_res_index,
+             (unsigned)s.agc_ceiling_index,
+             (int)s.ae_level,
+             (unsigned)s.edge_val,
+             (int)s.edge_enh,
+             (int)s.edge_auto,
+             (int)s.agc,
+             (int)s.aec,
+             (int)s.awb,
+             (int)s.awb_gain,
+             (int)s.test_mode,
+             (int)s.h_mirror,
+             (int)s.v_flip);
 }
 
 void app_manager_get_camera_state(app_camera_state_t *state) {
@@ -433,7 +449,8 @@ void app_manager_init(void) {
     s_system_status.storage_total_kb = 0;
     s_system_status.storage_free_kb = 0;
     snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-             "%s", "Storage is not checked yet.");
+             "%s", "Storage auto-check pending...");
+    s_storage_check_req = true;
     
     APP_LOGI("AppMgr: init done, load home");
     app_manager_navigate_to(SCREEN_ID_HOME);
@@ -442,6 +459,8 @@ void app_manager_init(void) {
 void app_manager_service_task(void *arg) {
     LV_UNUSED(arg);
     uint32_t elapsed_ms = 0;
+    uint32_t storage_retry_ms = 0;
+    bool first_check_pending = true;
     APP_LOGI("AppMgr: service task started");
     s_service_task_handle = xTaskGetCurrentTaskHandle();
 
@@ -452,6 +471,7 @@ void app_manager_service_task(void *arg) {
 
         bool do_format = false;
         bool do_check = false;
+        bool storage_available = false;
 
         state_lock();
         if (s_storage_format_req) {
@@ -461,7 +481,29 @@ void app_manager_service_task(void *arg) {
             s_storage_check_req = false;
             do_check = true;
         }
+        storage_available = s_system_status.storage_available;
         state_unlock();
+
+        // Run first check immediately after task start.
+        if (!do_format && !do_check && first_check_pending) {
+            first_check_pending = false;
+            do_check = true;
+            APP_LOGI("AppMgr: first storage check");
+        }
+
+        // Auto-retry storage check in background until available.
+        if (!do_format && !do_check && !storage_available) {
+            storage_retry_ms += 200U;
+            if (storage_retry_ms >= 3000U) {
+                storage_retry_ms = 0;
+                do_check = true;
+                state_lock();
+                snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
+                         "%s", "Auto checking storage...");
+                state_unlock();
+                APP_LOGI("AppMgr: auto storage check");
+            }
+        }
 
         if (do_format) {
             APP_LOGI("AppMgr: start storage format");
@@ -495,6 +537,9 @@ void app_manager_service_task(void *arg) {
                      "%s", message);
             state_unlock();
             APP_LOGI("Storage check done: ok=%d msg=%s", ok ? 1 : 0, message);
+            if (ok) {
+                storage_retry_ms = 0;
+            }
         }
 
         storage_request_t req_local = { false, false, STORAGE_OP_NONE, NULL, "", "", NULL, 0 };
