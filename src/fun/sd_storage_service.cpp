@@ -23,7 +23,7 @@ namespace {
 #endif
 
 #ifndef SD_STORAGE_WAIT_TIMEOUT_MS
-#define SD_STORAGE_WAIT_TIMEOUT_MS 20000
+#define SD_STORAGE_WAIT_TIMEOUT_MS 1200
 #endif
 
 typedef struct {
@@ -361,11 +361,11 @@ void sd_storage_service_request_format(void) {
 }
 
 bool sd_storage_service_list_root(char *out, uint32_t out_len) {
-    return request_sync(SD_STORAGE_OP_LIST_ROOT, NULL, NULL, out, out_len, SD_STORAGE_DEFAULT_RETRIES);
+    return request_sync(SD_STORAGE_OP_LIST_ROOT, NULL, NULL, out, out_len, 0);
 }
 
 bool sd_storage_service_list_dir(const char *path, char *out, uint32_t out_len) {
-    return request_sync(SD_STORAGE_OP_LIST_DIR, path, NULL, out, out_len, SD_STORAGE_DEFAULT_RETRIES);
+    return request_sync(SD_STORAGE_OP_LIST_DIR, path, NULL, out, out_len, 0);
 }
 
 bool sd_storage_service_mkdir(const char *path, char *msg, uint32_t msg_len) {
@@ -386,4 +386,46 @@ bool sd_storage_service_rename(const char *from, const char *to, char *msg, uint
 
 bool sd_storage_service_touch_file(const char *path, char *msg, uint32_t msg_len) {
     return request_sync(SD_STORAGE_OP_TOUCH_FILE, path, NULL, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES);
+}
+
+static bool invoke_async_result(bool ok, const char *result, sd_storage_callback_t callback, void *user_data) {
+    if (callback) {
+        callback(ok, result, user_data);
+    }
+    return ok;
+}
+
+bool sd_storage_service_list_root_async(char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_list_root(out, out_len);
+    return invoke_async_result(ok, out, callback, user_data);
+}
+
+bool sd_storage_service_list_dir_async(const char *path, char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_list_dir(path, out, out_len);
+    return invoke_async_result(ok, out, callback, user_data);
+}
+
+bool sd_storage_service_mkdir_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_mkdir(path, msg, msg_len);
+    return invoke_async_result(ok, msg, callback, user_data);
+}
+
+bool sd_storage_service_delete_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_delete(path, msg, msg_len);
+    return invoke_async_result(ok, msg, callback, user_data);
+}
+
+bool sd_storage_service_copy_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_copy(from, to, msg, msg_len);
+    return invoke_async_result(ok, msg, callback, user_data);
+}
+
+bool sd_storage_service_rename_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_rename(from, to, msg, msg_len);
+    return invoke_async_result(ok, msg, callback, user_data);
+}
+
+bool sd_storage_service_touch_file_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
+    bool ok = sd_storage_service_touch_file(path, msg, msg_len);
+    return invoke_async_result(ok, msg, callback, user_data);
 }

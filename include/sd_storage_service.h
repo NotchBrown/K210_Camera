@@ -38,6 +38,8 @@ typedef struct {
     char message[96];
 } sd_storage_status_t;
 
+typedef void (*sd_storage_callback_t)(bool ok, const char *result, void *user_data);
+
 void sd_storage_service_task(void *arg);
 void sd_storage_service_get_status(sd_storage_status_t *status);
 
@@ -51,3 +53,11 @@ bool sd_storage_service_delete(const char *path, char *msg, uint32_t msg_len);
 bool sd_storage_service_copy(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool sd_storage_service_rename(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool sd_storage_service_touch_file(const char *path, char *msg, uint32_t msg_len);
+
+bool sd_storage_service_list_root_async(char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_list_dir_async(const char *path, char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_mkdir_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_delete_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_copy_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_rename_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data);
+bool sd_storage_service_touch_file_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data);

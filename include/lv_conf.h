@@ -379,6 +379,12 @@
 /*Button matrix (dependencies: -)*/
 #define USE_LV_BTNM     1
 
+/*Keyboard (dependencies: lv_btnm, lv_ta)*/
+#define USE_LV_KB       1
+
+/* LVGL v9 keyboard widget switch */
+#define LV_USE_KEYBOARD 1
+
 /*Keyboard (dependencies: lv_btnm)*/
 #define USE_LV_KB       1
 

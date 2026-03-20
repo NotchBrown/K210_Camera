@@ -264,8 +264,17 @@ bool sd_fs_check(uint32_t *total_kb, uint32_t *free_kb, char *msg, uint32_t msg_
         return false;
     }
 
+    uint32_t total = sd_hw_total_kb();
+    if (total_kb) {
+        *total_kb = total;
+    }
+    if (free_kb) {
+        // This SdVolume API does not expose free cluster count; keep non-zero estimate for UI.
+        *free_kb = total;
+    }
+
     if (msg && msg_len > 0) {
-        snprintf(msg, msg_len, "SD mounted (capacity unknown)");
+        snprintf(msg, msg_len, "SD mounted (free is estimated)");
     }
     return true;
 }
@@ -317,9 +326,17 @@ bool sd_fs_list_dir(const char *path, char *out, uint32_t out_len) {
 
     if (strcmp(norm, "/") != 0) {
         unsigned int offset = 0;
+        unsigned int depth = 0;
         char comp[13];
 
         while (true) {
+            if (depth++ > 16U) {
+                if (parent != root) {
+                    parent->close();
+                }
+                set_text(out, out_len, "Path too deep");
+                return false;
+            }
             int n = 0;
             if (norm[offset] == '/') {
                 offset++;
@@ -376,9 +393,9 @@ bool sd_fs_list_dir(const char *path, char *out, uint32_t out_len) {
 
         current->dirName(p, name);
         if (DIR_IS_SUBDIR(&p)) {
-            snprintf(line, sizeof(line), "DIR /%s", name);
+            snprintf(line, sizeof(line), "DIR %s", name);
         } else {
-            snprintf(line, sizeof(line), "FILE /%s", name);
+            snprintf(line, sizeof(line), "FILE %s", name);
         }
 
         if (!append_line(out, out_len, line)) {

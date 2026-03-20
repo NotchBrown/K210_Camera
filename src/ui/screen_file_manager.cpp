@@ -14,15 +14,67 @@ static lv_obj_t *s_file_ta_from = NULL;
 static lv_obj_t *s_file_ta_to = NULL;
 static lv_obj_t *s_folder_ta_from = NULL;
 static lv_obj_t *s_folder_ta_to = NULL;
+static lv_obj_t *s_kb = NULL;
 static lv_obj_t *s_op_result_label = NULL;
 static lv_obj_t *s_op_result_label_folder = NULL;
 static char s_browser_fs_path[128] = "";
+static char s_selected_file_path[128] = "";
 static bool s_last_storage_available = false;
 static bool s_last_storage_checked = false;
 static uint8_t s_retry_sec = 0;
+static bool s_refresh_pending = false;
+static bool s_browser_busy = false;
 
 static void refresh_file_list(void);
 static void browser_item_cb(lv_event_t *event);
+
+static void refresh_file_list_async_cb(void *user_data) {
+    LV_UNUSED(user_data);
+    refresh_file_list();
+    s_refresh_pending = false;
+    s_browser_busy = false;
+}
+
+static void request_refresh_file_list(void) {
+    if (s_refresh_pending) {
+        return;
+    }
+    s_browser_busy = true;
+    s_refresh_pending = true;
+    lv_async_call(refresh_file_list_async_cb, NULL);
+}
+
+static void manage_textarea_event_cb(lv_event_t *event) {
+#if LV_USE_KEYBOARD
+    lv_event_code_t code = lv_event_get_code(event);
+    lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(event);
+    lv_obj_t *kb = (lv_obj_t *)lv_event_get_user_data(event);
+
+    if (!kb) {
+        return;
+    }
+
+    if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
+        lv_indev_t *act_indev = lv_indev_get_act();
+        lv_indev_type_t indev_type = act_indev ? lv_indev_get_type(act_indev) : LV_INDEV_TYPE_NONE;
+        if (indev_type != LV_INDEV_TYPE_KEYPAD) {
+            lv_keyboard_set_textarea(kb, ta);
+            lv_obj_move_foreground(kb);
+            lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+        lv_keyboard_set_textarea(kb, NULL);
+        lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_state(ta, LV_STATE_FOCUSED);
+        lv_indev_reset(NULL, ta);
+    } else if (code == LV_EVENT_DEFOCUSED) {
+        lv_keyboard_set_textarea(kb, NULL);
+        lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    }
+#else
+    LV_UNUSED(event);
+#endif
+}
 
 static void set_ta_from_current_dir(lv_obj_t *ta) {
     if (!ta) {
@@ -33,6 +85,22 @@ static void set_ta_from_current_dir(lv_obj_t *ta) {
     } else {
         lv_textarea_set_text(ta, s_browser_fs_path);
     }
+}
+
+static bool selected_file_exists(void) {
+    return s_selected_file_path[0] != '\0';
+}
+
+static void set_selected_file(const char *path) {
+    if (!path) {
+        s_selected_file_path[0] = '\0';
+        return;
+    }
+    lv_snprintf(s_selected_file_path, sizeof(s_selected_file_path), "%s", path);
+}
+
+static void clear_selected_file(void) {
+    s_selected_file_path[0] = '\0';
 }
 
 static void set_op_result(const char *msg, bool is_error) {
@@ -53,16 +121,19 @@ static void set_op_result(const char *msg, bool is_error) {
     }
 }
 
+static bool is_symbol_text(const char *txt) {
+    if (!txt) {
+        return false;
+    }
+    return strcmp(txt, LV_SYMBOL_DIRECTORY) == 0 ||
+           strcmp(txt, LV_SYMBOL_SD_CARD) == 0 ||
+           strcmp(txt, LV_SYMBOL_FILE) == 0 ||
+           strcmp(txt, LV_SYMBOL_WARNING) == 0 ||
+           strcmp(txt, LV_SYMBOL_LEFT) == 0;
+}
+
 static bool browser_btn_is_dir(lv_obj_t *btn) {
-    lv_obj_t *icon = lv_obj_get_child(btn, 0);
-    if (!icon) {
-        return false;
-    }
-    const char *icon_txt = lv_label_get_text(icon);
-    if (!icon_txt) {
-        return false;
-    }
-    return strcmp(icon_txt, LV_SYMBOL_DIRECTORY) == 0 || strcmp(icon_txt, LV_SYMBOL_SD_CARD) == 0;
+    return btn && lv_obj_has_flag(btn, LV_OBJ_FLAG_USER_1);
 }
 
 static void browser_item_full_path(const char *item_text, char *out, size_t out_len) {
@@ -143,11 +214,14 @@ static void normalize_user_path(const char *input,
 }
 
 static const char *browser_btn_text(lv_obj_t *btn) {
-    lv_obj_t *label = lv_obj_get_child(btn, 1);
-    if (!label) {
+    if (!btn || !s_file_list) {
         return NULL;
     }
-    return lv_label_get_text(label);
+    const char *txt = lv_list_get_button_text(s_file_list, btn);
+    if (!txt || txt[0] == '\0' || is_symbol_text(txt)) {
+        return NULL;
+    }
+    return txt;
 }
 
 static void browser_set_path(const char *path) {
@@ -187,28 +261,25 @@ static void browser_to_parent_path(void) {
 }
 
 static bool browser_append_dir_item(const char *name) {
-    char next_path[128];
     if (!name || name[0] != '/') {
         return false;
     }
 
-    if (strcmp(s_browser_fs_path, "/") == 0) {
-        lv_snprintf(next_path, sizeof(next_path), "%s", name);
-    } else {
-        lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, name);
-    }
-
     lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_DIRECTORY, name);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_USER_1);
     lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-    APP_LOGI("FileManager: add dir %s", next_path);
     return true;
 }
 
 static void browser_item_cb(lv_event_t *event) {
     lv_event_code_t code = lv_event_get_code(event);
-    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED) {
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED && code != LV_EVENT_LONG_PRESSED) {
+        return;
+    }
+
+    if (s_browser_busy && code != LV_EVENT_LONG_PRESSED) {
         return;
     }
 
@@ -242,44 +313,57 @@ static void browser_item_cb(lv_event_t *event) {
 
     if (strcmp(text, "/SD/") == 0) {
         browser_set_path("/");
+        clear_selected_file();
         APP_LOGI("FileManager: enter /SD/");
-        refresh_file_list();
+        request_refresh_file_list();
         return;
     }
 
     if (strcmp(text, "...") == 0) {
         browser_to_parent_path();
+        clear_selected_file();
         APP_LOGI("FileManager: back to %s", s_browser_fs_path[0] ? s_browser_fs_path : "<root>");
-        refresh_file_list();
+        request_refresh_file_list();
         return;
     }
 
     if (text[0] == '/') {
-        char next_path[128];
-        if (strcmp(s_browser_fs_path, "/") == 0) {
-            lv_snprintf(next_path, sizeof(next_path), "%s", text);
-        } else {
-            // 避免路径中出现双斜杠
-            if (s_browser_fs_path[strlen(s_browser_fs_path) - 1] == '/' && text[0] == '/') {
-                lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text + 1);
+        bool is_dir = browser_btn_is_dir(btn);
+        if (is_dir) {
+            char next_path[128];
+            if (strcmp(s_browser_fs_path, "/") == 0) {
+                lv_snprintf(next_path, sizeof(next_path), "%s", text);
             } else {
-                lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text);
+                // 避免路径中出现双斜杠
+                if (s_browser_fs_path[strlen(s_browser_fs_path) - 1] == '/' && text[0] == '/') {
+                    lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text + 1);
+                } else {
+                    lv_snprintf(next_path, sizeof(next_path), "%s%s", s_browser_fs_path, text);
+                }
             }
+            browser_set_path(next_path);
+            clear_selected_file();
+            APP_LOGI("FileManager: enter dir %s", s_browser_fs_path);
+            request_refresh_file_list();
+            return;
         }
-        browser_set_path(next_path);
-        APP_LOGI("FileManager: enter dir %s", s_browser_fs_path);
-        refresh_file_list();
+
+        char full_path[128];
+        browser_item_full_path(text, full_path, sizeof(full_path));
+        if (full_path[0] != '\0') {
+            set_selected_file(full_path);
+            APP_LOGI("FileManager: file selected %s", full_path);
+            set_op_result("File selected (use Cur in Manage->File)", false);
+        }
         return;
     }
 
     char full_path[128];
     browser_item_full_path(text, full_path, sizeof(full_path));
     if (full_path[0] != '\0') {
-        if (s_file_ta_from) {
-            lv_textarea_set_text(s_file_ta_from, full_path);
-        }
+        set_selected_file(full_path);
         APP_LOGI("FileManager: file selected %s", full_path);
-        set_op_result("File selected to From", false);
+        set_op_result("File selected (use Cur in Manage->File)", false);
     }
 }
 
@@ -313,11 +397,14 @@ static void append_browser_lines(const char *text) {
             } else if (strncmp(line, "FILE", 4) == 0) {
                 // 确保文件名正确处理
                 lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_FILE, line + 5);
+                lv_obj_clear_flag(btn, LV_OBJ_FLAG_USER_1);
                 lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+                lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
                 lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_LONG_PRESSED, NULL);
             } else {
                 lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, line);
                 lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+                lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
             }
         }
 
@@ -351,14 +438,18 @@ static void refresh_file_list(void) {
     if (status.storage_available) {
         if (s_browser_fs_path[0] == '\0') {
             lv_obj_t *btn_root = lv_list_add_button(s_file_list, LV_SYMBOL_SD_CARD, "/SD/");
+            lv_obj_add_flag(btn_root, LV_OBJ_FLAG_USER_1);
             lv_obj_add_event_cb(btn_root, browser_item_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn_root, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
             lv_obj_add_event_cb(btn_root, browser_item_cb, LV_EVENT_LONG_PRESSED, NULL);
             return;
         }
 
         // 添加返回上级目录按钮
         lv_obj_t *btn_back = lv_list_add_button(s_file_list, LV_SYMBOL_LEFT, "...");
+        lv_obj_add_flag(btn_back, LV_OBJ_FLAG_USER_1);
         lv_obj_add_event_cb(btn_back, browser_item_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(btn_back, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
 
         // 限制单次读取的文件列表大小，避免内存占用过高
         char listing[1024];
@@ -369,17 +460,17 @@ static void refresh_file_list(void) {
         } else {
             lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, listing[0] ? listing : "List failed");
             lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
             APP_LOGE("FileManager: list failed path=%s msg=%s", s_browser_fs_path, listing);
             set_op_result(listing[0] ? listing : "List failed", true);
         }
     } else {
         lv_obj_t *btn = lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, status.storage_message);
         lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(btn, browser_item_cb, LV_EVENT_SHORT_CLICKED, NULL);
         set_op_result(status.storage_message, true);
     }
     
-    // 立即刷新界面，提高响应速度
-    lv_refr_now(NULL);
 }
 
 static void apply_tabview_style(lv_obj_t *tabview) {
@@ -461,13 +552,11 @@ static void timer_cb(lv_timer_t *timer) {
         s_retry_sec = 0;
     }
 
-    // 只有在存储状态确实改变时才刷新文件列表
+    // 仅记录状态变化，避免在定时器里触发阻塞式文件系统访问导致卡顿。
     if (status.storage_available != s_last_storage_available ||
         status.storage_checked != s_last_storage_checked) {
         s_last_storage_available = status.storage_available;
         s_last_storage_checked = status.storage_checked;
-        APP_LOGI("FileManager: storage availability changed=%d", status.storage_available ? 1 : 0);
-        refresh_file_list();
     }
 }
 
@@ -549,7 +638,7 @@ static void file_operation_cb(lv_event_t *event) {
         if (ok) {
             APP_LOGI("FileManager: op ok: %s", msg);
             set_op_result(msg[0] ? msg : "Operation success", false);
-            refresh_file_list();
+            request_refresh_file_list();
         } else {
             APP_LOGE("FileManager: op failed: %s", msg);
             set_op_result(msg[0] ? msg : "Operation failed", true);
@@ -559,6 +648,10 @@ static void file_operation_cb(lv_event_t *event) {
 
 static void screen_delete_cb(lv_event_t *event) {
     LV_UNUSED(event);
+    if (s_kb) {
+        lv_obj_delete(s_kb);
+        s_kb = NULL;
+    }
     if (s_refresh_timer) {
         lv_timer_delete(s_refresh_timer);
         s_refresh_timer = NULL;
@@ -575,19 +668,46 @@ static void screen_delete_cb(lv_event_t *event) {
     s_last_storage_available = false;
     s_last_storage_checked = false;
     s_retry_sec = 0;
+    s_refresh_pending = false;
+    s_browser_busy = false;
     s_browser_fs_path[0] = '\0';
+    s_selected_file_path[0] = '\0';
 }
 
 static void quick_fill_from_cb(lv_event_t *event) {
     LV_UNUSED(event);
     bool is_folder = lv_event_get_user_data(event) != NULL;
-    set_ta_from_current_dir(is_folder ? s_folder_ta_from : s_file_ta_from);
+    if (is_folder) {
+        set_ta_from_current_dir(s_folder_ta_from);
+        return;
+    }
+
+    if (!selected_file_exists()) {
+        set_op_result("No file selected in Browser", true);
+        return;
+    }
+
+    if (s_file_ta_from) {
+        lv_textarea_set_text(s_file_ta_from, s_selected_file_path);
+    }
 }
 
 static void quick_fill_to_cb(lv_event_t *event) {
     LV_UNUSED(event);
     bool is_folder = lv_event_get_user_data(event) != NULL;
-    set_ta_from_current_dir(is_folder ? s_folder_ta_to : s_file_ta_to);
+    if (is_folder) {
+        set_ta_from_current_dir(s_folder_ta_to);
+        return;
+    }
+
+    if (!selected_file_exists()) {
+        set_op_result("No file selected in Browser", true);
+        return;
+    }
+
+    if (s_file_ta_to) {
+        lv_textarea_set_text(s_file_ta_to, s_selected_file_path);
+    }
 }
 
 lv_obj_t *screen_file_manager_create(void) {
@@ -632,6 +752,7 @@ lv_obj_t *screen_file_manager_create(void) {
     s_last_storage_checked = false;
     s_last_storage_available = false;
     browser_set_path("/");
+    clear_selected_file();
     
     // 刷新文件列表
     refresh_file_list();
@@ -668,6 +789,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_pos(s_file_ta_from, 20, 30);
     lv_obj_set_size(s_file_ta_from, 120, 30);
     lv_textarea_set_one_line(s_file_ta_from, true);
+    lv_obj_add_flag(s_file_ta_from, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_file_ta_from, "");
 
     lv_obj_t *btn_file_from_cur = lv_button_create(op_file_cont);
@@ -686,6 +808,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_pos(s_file_ta_to, 20, 90);
     lv_obj_set_size(s_file_ta_to, 120, 30);
     lv_textarea_set_one_line(s_file_ta_to, true);
+    lv_obj_add_flag(s_file_ta_to, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_file_ta_to, "");
 
     lv_obj_t *btn_file_to_cur = lv_button_create(op_file_cont);
@@ -727,6 +850,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_pos(s_folder_ta_from, 20, 30);
     lv_obj_set_size(s_folder_ta_from, 120, 30);
     lv_textarea_set_one_line(s_folder_ta_from, true);
+    lv_obj_add_flag(s_folder_ta_from, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_folder_ta_from, "");
 
     lv_obj_t *btn_fold_from_cur = lv_button_create(op_folder_cont);
@@ -745,6 +869,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_pos(s_folder_ta_to, 20, 90);
     lv_obj_set_size(s_folder_ta_to, 120, 30);
     lv_textarea_set_one_line(s_folder_ta_to, true);
+    lv_obj_add_flag(s_folder_ta_to, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_folder_ta_to, "");
 
     lv_obj_t *btn_fold_to_cur = lv_button_create(op_folder_cont);
@@ -796,6 +921,19 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_style_text_font(s_clock_label, app_font_ui(), LV_PART_MAIN);
     lv_obj_move_foreground(s_clock_label);
     lv_obj_move_foreground(btn_back);
+
+#if LV_USE_KEYBOARD
+    s_kb = lv_keyboard_create(lv_layer_top());
+    lv_obj_set_size(s_kb, 320, 92);
+    lv_obj_set_pos(s_kb, 0, 148);
+    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_obj_move_foreground(s_kb);
+    lv_obj_add_event_cb(s_file_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+    lv_obj_add_event_cb(s_file_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+    lv_obj_add_event_cb(s_folder_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+    lv_obj_add_event_cb(s_folder_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+#endif
 
     s_refresh_timer = lv_timer_create(timer_cb, 1000, NULL);
     refresh_footer_clock();

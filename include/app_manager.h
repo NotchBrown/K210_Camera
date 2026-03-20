@@ -1,6 +1,9 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
+
+typedef void (*app_storage_callback_t)(bool ok, const char *result, void *user_data);
 
 /* ── 屏幕 ID ────────────────────────────────────────────── */
 typedef enum {
@@ -81,5 +84,13 @@ bool app_manager_storage_delete(const char *path, char *msg, uint32_t msg_len);
 bool app_manager_storage_copy(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool app_manager_storage_rename(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool app_manager_storage_touch_file(const char *path, char *msg, uint32_t msg_len);
-/* 后台任务：独立于 LVGL 线程处理硬件/状态刷新 */
+
+bool app_manager_storage_list_root_async(char *out, uint32_t out_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_list_dir_async(const char *path, char *out, uint32_t out_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_mkdir_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_delete_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_copy_async(const char *from, const char *to, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_rename_async(const char *from, const char *to, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data);
+bool app_manager_storage_touch_file_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data);
+
 void app_manager_service_task(void *arg);

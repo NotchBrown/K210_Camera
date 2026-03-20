@@ -280,6 +280,34 @@ bool app_manager_storage_touch_file(const char *path, char *msg, uint32_t msg_le
     return sd_storage_service_touch_file(path, msg, msg_len);
 }
 
+bool app_manager_storage_list_root_async(char *out, uint32_t out_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_list_root_async(out, out_len, callback, user_data);
+}
+
+bool app_manager_storage_list_dir_async(const char *path, char *out, uint32_t out_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_list_dir_async(path, out, out_len, callback, user_data);
+}
+
+bool app_manager_storage_mkdir_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_mkdir_async(path, msg, msg_len, callback, user_data);
+}
+
+bool app_manager_storage_delete_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_delete_async(path, msg, msg_len, callback, user_data);
+}
+
+bool app_manager_storage_copy_async(const char *from, const char *to, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_copy_async(from, to, msg, msg_len, callback, user_data);
+}
+
+bool app_manager_storage_rename_async(const char *from, const char *to, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_rename_async(from, to, msg, msg_len, callback, user_data);
+}
+
+bool app_manager_storage_touch_file_async(const char *path, char *msg, uint32_t msg_len, app_storage_callback_t callback, void *user_data) {
+    return sd_storage_service_touch_file_async(path, msg, msg_len, callback, user_data);
+}
+
 void app_manager_navigate_to(app_screen_id_t id) {
     lv_obj_t *new_scr = NULL;
     lv_obj_t *old_scr = lv_screen_active();
