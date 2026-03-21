@@ -5,6 +5,7 @@
 #include "app_log.h"
 #include "app_manager.h"
 #include "screen_file_manager.h"
+#include "sd_fs.h"
 
 static lv_obj_t *s_clock_label = NULL;
 static lv_timer_t *s_refresh_timer = NULL;
@@ -53,9 +54,11 @@ static void manage_textarea_event_cb(lv_event_t *event) {
         return;
     }
 
-    if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
+    if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED || code == LV_EVENT_PRESSED) {
         lv_indev_t *act_indev = lv_indev_get_act();
         lv_indev_type_t indev_type = act_indev ? lv_indev_get_type(act_indev) : LV_INDEV_TYPE_NONE;
+
+        APP_LOGI("FileManager: show kb event=%d indev=%d", (int)code, (int)indev_type);
         if (indev_type != LV_INDEV_TYPE_KEYPAD) {
             lv_keyboard_set_textarea(kb, ta);
             lv_obj_move_foreground(kb);
@@ -607,6 +610,80 @@ static void file_operation_cb(lv_event_t *event) {
             return;
         }
 
+        // If destination exists, ask for overwrite confirmation for Copy/Cut/New
+        bool dest_exists = sd_fs_exists(to_norm);
+        if ((strcmp(btn_text, "New (To)") == 0
+             || strcmp(btn_text, "Cut") == 0
+             || strcmp(btn_text, "Copy") == 0) && dest_exists) {
+            // Use LVGL default message box for consistent styling
+            typedef struct {
+                char from[128];
+                char to[128];
+                bool is_folder;
+                char op[16];
+            } confirm_ctx_t;
+
+            confirm_ctx_t *ctx = (confirm_ctx_t *)malloc(sizeof(confirm_ctx_t));
+            if (!ctx) {
+                set_op_result("Memory alloc failed", true);
+                return;
+            }
+            snprintf(ctx->from, sizeof(ctx->from), "%s", from_norm);
+            snprintf(ctx->to, sizeof(ctx->to), "%s", to_norm);
+            ctx->is_folder = is_folder_op;
+            snprintf(ctx->op, sizeof(ctx->op), "%s", btn_text);
+
+            lv_obj_t *mbox = lv_msgbox_create(lv_layer_top());
+            lv_msgbox_add_title(mbox, "Confirm");
+            lv_msgbox_add_text_fmt(mbox, "Destination exists:\n%s\nOverwrite?", to_norm);
+            lv_obj_t *btn_yes = lv_msgbox_add_footer_button(mbox, "Yes");
+            lv_obj_t *btn_no = lv_msgbox_add_footer_button(mbox, "No");
+
+            // Yes handler
+            lv_obj_add_event_cb(btn_yes, [](lv_event_t *e){
+                lv_event_code_t code = lv_event_get_code(e);
+                if (code != LV_EVENT_CLICKED) return;
+                confirm_ctx_t *ctx = (confirm_ctx_t *)lv_event_get_user_data(e);
+                if (!ctx) return;
+                char outmsg[128] = "";
+                (void)app_manager_storage_delete(ctx->to, outmsg, sizeof(outmsg));
+                bool res = false;
+                if (strcmp(ctx->op, "Copy") == 0) {
+                    res = app_manager_storage_copy(ctx->from, ctx->to, outmsg, sizeof(outmsg));
+                } else if (strcmp(ctx->op, "Cut") == 0) {
+                    res = app_manager_storage_rename(ctx->from, ctx->to, outmsg, sizeof(outmsg));
+                } else if (strcmp(ctx->op, "New (To)") == 0) {
+                    if (ctx->is_folder) {
+                        res = app_manager_storage_mkdir(ctx->to, outmsg, sizeof(outmsg));
+                    } else {
+                        res = app_manager_storage_touch_file(ctx->to, outmsg, sizeof(outmsg));
+                    }
+                }
+                set_op_result(outmsg[0] ? outmsg : (res ? "Operation success" : "Operation failed"), !res);
+                if (res) request_refresh_file_list();
+                // close msgbox and cleanup
+                lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
+                lv_obj_t *footer = lv_obj_get_parent((const lv_obj_t *)btn);
+                lv_obj_t *mb = footer ? lv_obj_get_parent((const lv_obj_t *)footer) : NULL;
+                if (mb) lv_obj_del(mb);
+                free(ctx);
+            }, LV_EVENT_CLICKED, ctx);
+
+            // No handler
+            lv_obj_add_event_cb(btn_no, [](lv_event_t *e){
+                confirm_ctx_t *ctx = (confirm_ctx_t *)lv_event_get_user_data(e);
+                (void)ctx;
+                lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
+                lv_obj_t *footer = lv_obj_get_parent((const lv_obj_t *)btn);
+                lv_obj_t *mb = footer ? lv_obj_get_parent((const lv_obj_t *)footer) : NULL;
+                if (mb) lv_obj_del(mb);
+                free(ctx);
+            }, LV_EVENT_CLICKED, ctx);
+
+            return;
+        }
+
+        // No existing destination or user confirmed; perform operation now
         if (strcmp(btn_text, "Delete (From)") == 0) {
             ok = app_manager_storage_delete(from_norm, msg, sizeof(msg));
         } else if (strcmp(btn_text, "New (To)") == 0) {
@@ -772,12 +849,26 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_pos(label_from, 10, 10);
     lv_label_set_text(label_from, "From:");
 
+    // create soft keyboard first so textareas can reference it in callbacks
+#if LV_USE_KEYBOARD
+    if (!s_kb) {
+        s_kb = lv_keyboard_create(lv_layer_top());
+        lv_obj_set_size(s_kb, 320, 110);
+        lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+        lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    }
+#endif
+
     s_file_ta_from = lv_textarea_create(op_file_cont);
     lv_obj_set_pos(s_file_ta_from, 20, 30);
     lv_obj_set_size(s_file_ta_from, 120, 30);
     lv_textarea_set_one_line(s_file_ta_from, true);
     lv_obj_add_flag(s_file_ta_from, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_file_ta_from, "");
+#if LV_USE_KEYBOARD
+    lv_obj_add_event_cb(s_file_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+#endif
 
     lv_obj_t *btn_file_from_cur = lv_button_create(op_file_cont);
     lv_obj_set_pos(btn_file_from_cur, 145, 30);
@@ -797,6 +888,9 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_textarea_set_one_line(s_file_ta_to, true);
     lv_obj_add_flag(s_file_ta_to, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_file_ta_to, "");
+#if LV_USE_KEYBOARD
+    lv_obj_add_event_cb(s_file_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+#endif
 
     lv_obj_t *btn_file_to_cur = lv_button_create(op_file_cont);
     lv_obj_set_pos(btn_file_to_cur, 145, 90);
@@ -839,6 +933,9 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_textarea_set_one_line(s_folder_ta_from, true);
     lv_obj_add_flag(s_folder_ta_from, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_folder_ta_from, "");
+#if LV_USE_KEYBOARD
+    lv_obj_add_event_cb(s_folder_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+#endif
 
     lv_obj_t *btn_fold_from_cur = lv_button_create(op_folder_cont);
     lv_obj_set_pos(btn_fold_from_cur, 145, 30);
@@ -858,6 +955,9 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_textarea_set_one_line(s_folder_ta_to, true);
     lv_obj_add_flag(s_folder_ta_to, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_text(s_folder_ta_to, "");
+#if LV_USE_KEYBOARD
+    lv_obj_add_event_cb(s_folder_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
+#endif
 
     lv_obj_t *btn_fold_to_cur = lv_button_create(op_folder_cont);
     lv_obj_set_pos(btn_fold_to_cur, 145, 90);
@@ -909,18 +1009,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_move_foreground(s_clock_label);
     lv_obj_move_foreground(btn_back);
 
-#if LV_USE_KEYBOARD
-    s_kb = lv_keyboard_create(lv_layer_top());
-    lv_obj_set_size(s_kb, 320, 92);
-    lv_obj_set_pos(s_kb, 0, 148);
-    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
-    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
-    lv_obj_move_foreground(s_kb);
-    lv_obj_add_event_cb(s_file_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
-    lv_obj_add_event_cb(s_file_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
-    lv_obj_add_event_cb(s_folder_ta_from, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
-    lv_obj_add_event_cb(s_folder_ta_to, manage_textarea_event_cb, LV_EVENT_ALL, s_kb);
-#endif
+    (void)0;
 
     s_refresh_timer = lv_timer_create(timer_cb, 1000, NULL);
     refresh_footer_clock();

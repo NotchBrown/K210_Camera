@@ -13,3 +13,4 @@ bool sd_fs_delete(const char *path, char *msg, uint32_t msg_len);
 bool sd_fs_copy(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool sd_fs_rename(const char *from, const char *to, char *msg, uint32_t msg_len);
 bool sd_fs_touch_file(const char *path, char *msg, uint32_t msg_len);
+bool sd_fs_exists(const char *path);
