@@ -42,13 +42,13 @@ static void build_popup(const char *message) {
     lv_obj_set_style_pad_row(s_panel, 10, LV_PART_MAIN);
 
     s_spinner = lv_spinner_create(s_panel);
-    lv_obj_set_size(s_spinner, 50, 50);
+    lv_obj_set_size(s_spinner, 56, 56);
     lv_obj_set_style_arc_width(s_spinner, 6, LV_PART_MAIN);
     lv_obj_set_style_arc_width(s_spinner, 6, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(s_spinner, lv_color_hex(0x32414f), LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_spinner, lv_color_hex(0x7cc7ff), LV_PART_INDICATOR);
     lv_obj_center(s_spinner);
-    lv_spinner_set_anim_params(s_spinner, 900, 220);
+    lv_spinner_set_anim_params(s_spinner, 600, 180);
 
     s_message_label = lv_label_create(s_panel);
     lv_obj_set_width(s_message_label, 190);
