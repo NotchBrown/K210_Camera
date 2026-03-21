@@ -196,6 +196,17 @@ static void request_async(sd_storage_op_t op, const char *msg) {
         APP_LOGW("SDSvc: queue not ready, deferred op=%d", (int)op);
         return;
     }
+
+    if (op == SD_STORAGE_OP_CHECK) {
+        status_lock();
+        s_status.checked = false;
+        s_status.available = false;
+        s_status.total_kb = 0;
+        s_status.free_kb = 0;
+        snprintf(s_status.message, sizeof(s_status.message), "%s", msg ? msg : "Checking storage...");
+        status_unlock();
+    }
+
     sd_storage_req_t req = { SD_STORAGE_OP_NONE, NULL, "", "", NULL, 0, NULL, 0, 0 };
     req.op = op;
     req.retries = SD_STORAGE_DEFAULT_RETRIES;

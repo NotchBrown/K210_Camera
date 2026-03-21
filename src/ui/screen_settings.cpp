@@ -208,14 +208,12 @@ static void storage_check_cb(lv_event_t *event) {
     LV_UNUSED(event);
     APP_LOGI("Settings: storage check requested");
     app_manager_request_storage_check();
-    refresh_storage_text();
 }
 
 static void storage_format_cb(lv_event_t *event) {
     LV_UNUSED(event);
     APP_LOGI("Settings: storage format requested");
     app_manager_request_storage_format();
-    refresh_storage_text();
 }
 
 static bool checkbox_is_checked(lv_obj_t *cb) {

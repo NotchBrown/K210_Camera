@@ -13,6 +13,7 @@
 #include "screen_file_manager.h"
 #include "screen_home.h"
 #include "screen_settings.h"
+#include "screen_waiting.h"
 #include "sd_storage_service.h"
 
 /* ── 全局状态 ────────────────────────────────────────────── */
@@ -32,6 +33,27 @@ static app_camera_state_t s_camera_state = { false, false, 0, 0 };
 static app_system_status_t s_system_status = {
     false, false, 0, 0, "Storage is not checked yet."
 };
+
+typedef enum {
+    WAITING_MODE_NONE = 0,
+    WAITING_MODE_NAVIGATE = 1,
+    WAITING_MODE_STORAGE_CHECK = 2,
+} waiting_mode_t;
+
+static const uint32_t k_waiting_navigate_delay_ms = 80U;
+static const uint32_t k_waiting_storage_start_delay_ms = 120U;
+static const uint32_t k_waiting_storage_min_visible_ms = 280U;
+
+static waiting_mode_t s_waiting_mode = WAITING_MODE_NONE;
+static app_screen_id_t s_waiting_target_id = SCREEN_ID_HOME;
+static char s_waiting_message[96] = "Please wait...";
+static lv_timer_t *s_waiting_timer = NULL;
+static uint32_t s_waiting_started_ms = 0;
+static bool s_waiting_storage_request_sent = false;
+
+static void load_screen(app_screen_id_t id);
+static void start_waiting(waiting_mode_t mode, app_screen_id_t target_id, const char *message);
+static void waiting_timer_cb(lv_timer_t *timer);
 
 static void state_lock(void) {
     if (s_lock) {
@@ -114,6 +136,101 @@ static void rtc_bootstrap(void) {
     app_datetime_t current_dt;
     if (!rtc_read_datetime(&current_dt)) {
         rtc_write_datetime(&k_default_dt);
+    }
+}
+
+static void stop_waiting_timer(void) {
+    if (s_waiting_timer) {
+        lv_timer_delete(s_waiting_timer);
+        s_waiting_timer = NULL;
+    }
+    s_waiting_mode = WAITING_MODE_NONE;
+    s_waiting_started_ms = 0;
+    s_waiting_storage_request_sent = false;
+}
+
+static void load_screen(app_screen_id_t id) {
+    lv_obj_t *new_scr = NULL;
+    lv_obj_t *old_scr = lv_screen_active();
+
+    APP_LOGI("AppMgr: load screen from %d to %d", (int)s_current_id, (int)id);
+
+    switch (id) {
+        case SCREEN_ID_HOME:
+            new_scr = screen_home_create();
+            break;
+        case SCREEN_ID_SETTINGS:
+            new_scr = screen_settings_create();
+            break;
+        case SCREEN_ID_CAMERA:
+            new_scr = screen_camera_create();
+            break;
+        case SCREEN_ID_FILE_MANAGER:
+            new_scr = screen_file_manager_create();
+            break;
+        default:
+            return;
+    }
+
+    if (new_scr == NULL) {
+        APP_LOGE("AppMgr: create screen %d failed", (int)id);
+        return;
+    }
+
+    if (!s_initialized) {
+        s_initialized = true;
+    }
+
+    lv_screen_load(new_scr);
+    if (old_scr && old_scr != new_scr && lv_obj_is_valid(old_scr)) {
+        lv_obj_delete_async(old_scr);
+    }
+    s_current_id = id;
+    APP_LOGI("AppMgr: screen load done id=%d", (int)id);
+}
+
+static void start_waiting(waiting_mode_t mode, app_screen_id_t target_id, const char *message) {
+    stop_waiting_timer();
+    s_waiting_mode = mode;
+    s_waiting_target_id = target_id;
+    s_waiting_started_ms = lv_tick_get();
+    s_waiting_storage_request_sent = false;
+    snprintf(s_waiting_message, sizeof(s_waiting_message), "%s", message ? message : "Please wait...");
+
+    screen_waiting_show(s_waiting_message);
+
+    s_waiting_timer = lv_timer_create(waiting_timer_cb, 40, NULL);
+}
+
+static void waiting_timer_cb(lv_timer_t *timer) {
+    LV_UNUSED(timer);
+
+    uint32_t elapsed_ms = lv_tick_elaps(s_waiting_started_ms);
+
+    if (s_waiting_mode == WAITING_MODE_NAVIGATE) {
+        if (elapsed_ms >= k_waiting_navigate_delay_ms) {
+            stop_waiting_timer();
+            screen_waiting_close();
+            load_screen(s_waiting_target_id);
+        }
+        return;
+    }
+
+    if (s_waiting_mode == WAITING_MODE_STORAGE_CHECK) {
+        if (!s_waiting_storage_request_sent && elapsed_ms >= k_waiting_storage_start_delay_ms) {
+            s_waiting_storage_request_sent = true;
+            screen_waiting_set_message("Checking SD space...");
+            sd_storage_service_request_check();
+        }
+
+        if (s_waiting_storage_request_sent && elapsed_ms >= k_waiting_storage_min_visible_ms) {
+            app_system_status_t status;
+            app_manager_get_system_status(&status);
+            if (status.storage_checked) {
+                stop_waiting_timer();
+                screen_waiting_close();
+            }
+        }
     }
 }
 
@@ -244,7 +361,7 @@ void app_manager_get_system_status(app_system_status_t *status) {
 
 void app_manager_request_storage_check(void) {
     APP_LOGI("AppMgr: request check queued");
-    sd_storage_service_request_check();
+    start_waiting(WAITING_MODE_STORAGE_CHECK, SCREEN_ID_SETTINGS, "Preparing SD check...");
 }
 
 void app_manager_request_storage_format(void) {
@@ -309,42 +426,8 @@ bool app_manager_storage_touch_file_async(const char *path, char *msg, uint32_t 
 }
 
 void app_manager_navigate_to(app_screen_id_t id) {
-    lv_obj_t *new_scr = NULL;
-    lv_obj_t *old_scr = lv_screen_active();
-
     APP_LOGI("AppMgr: navigate from %d to %d", (int)s_current_id, (int)id);
-
-    switch (id) {
-        case SCREEN_ID_HOME:
-            new_scr = screen_home_create();
-            break;
-        case SCREEN_ID_SETTINGS:
-            new_scr = screen_settings_create();
-            break;
-        case SCREEN_ID_CAMERA:
-            new_scr = screen_camera_create();
-            break;
-        case SCREEN_ID_FILE_MANAGER:
-            new_scr = screen_file_manager_create();
-            break;
-        default: return;
-    }
-
-    if (new_scr == NULL) {
-        APP_LOGE("AppMgr: create screen %d failed", (int)id);
-        return;
-    }
-
-    if (!s_initialized) {
-        s_initialized = true;
-    }
-
-    lv_screen_load(new_scr);
-    if (old_scr && old_scr != new_scr && lv_obj_is_valid(old_scr)) {
-        lv_obj_delete_async(old_scr);
-    }
-    s_current_id = id;
-    APP_LOGI("AppMgr: screen load done id=%d", (int)id);
+    start_waiting(WAITING_MODE_NAVIGATE, id, "Loading page...");
 }
 
 void app_manager_init(void) {
@@ -363,7 +446,7 @@ void app_manager_init(void) {
              "%s", "Storage not checked. Open Settings > SD FS and tap Check.");
     
     APP_LOGI("AppMgr: init done, load home");
-    app_manager_navigate_to(SCREEN_ID_HOME);
+    load_screen(SCREEN_ID_HOME);
 }
 
 void app_manager_service_task(void *arg) {

@@ -16,6 +16,69 @@ static SdFile s_root;
 static bool s_mounted = false;
 static bool s_spi_inited = false;
 
+static int32_t count_free_clusters_from_fat(const SdVolume *vol) {
+    if (!vol || !s_root.isOpen()) {
+        return -1;
+    }
+
+    Sd2Card *card = SdVolume::sdCard();
+    if (!card) {
+        return -1;
+    }
+
+    uint8_t fat_type = vol->fatType();
+    uint32_t cluster_count = vol->clusterCount();
+    uint32_t fat_start = vol->fatStartBlock();
+    uint32_t fat_blocks = vol->blocksPerFat();
+    uint8_t block[512];
+    int32_t free_clusters = 0;
+
+    if (fat_type == 16) {
+        uint32_t entry = 2U;
+        uint32_t last_entry = cluster_count + 1U;
+
+        for (uint32_t fat_block = 0U; fat_block < fat_blocks && entry <= last_entry; ++fat_block) {
+            if (!card->readBlock(fat_start + fat_block, block)) {
+                return -1;
+            }
+
+            for (uint32_t i = 0U; i < 256U && entry <= last_entry; ++i, ++entry) {
+                uint32_t index = i * 2U;
+                uint16_t value = (uint16_t)block[index] | ((uint16_t)block[index + 1U] << 8);
+                if (value == 0U) {
+                    free_clusters++;
+                }
+            }
+        }
+        return free_clusters;
+    }
+
+    if (fat_type == 32) {
+        uint32_t entry = 2U;
+        uint32_t last_entry = cluster_count + 1U;
+
+        for (uint32_t fat_block = 0U; fat_block < fat_blocks && entry <= last_entry; ++fat_block) {
+            if (!card->readBlock(fat_start + fat_block, block)) {
+                return -1;
+            }
+
+            for (uint32_t i = 0U; i < 128U && entry <= last_entry; ++i, ++entry) {
+                uint32_t index = i * 4U;
+                uint32_t value = (uint32_t)block[index] |
+                                 ((uint32_t)block[index + 1U] << 8) |
+                                 ((uint32_t)block[index + 2U] << 16) |
+                                 ((uint32_t)block[index + 3U] << 24);
+                if ((value & 0x0FFFFFFFU) == 0U) {
+                    free_clusters++;
+                }
+            }
+        }
+        return free_clusters;
+    }
+
+    return -1;
+}
+
 static void set_msg(char *msg, uint32_t msg_len, const char *text) {
     if (!msg || msg_len == 0) {
         return;
@@ -116,5 +179,18 @@ uint32_t sd_hw_free_kb(void) {
         return 0;
     }
 
-    return 0;
+    const SdVolume *vol = s_root.volume();
+    if (!vol) {
+        return 0;
+    }
+
+    int32_t free_clusters = count_free_clusters_from_fat(vol);
+    if (free_clusters <= 0) {
+        return 0;
+    }
+
+    uint32_t kb = (uint32_t)vol->blocksPerCluster();
+    kb *= (uint32_t)free_clusters;
+    kb /= 2U;
+    return kb;
 }
