@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
+#include "kendryte-standalone-sdk/lib/freertos/include/task.h"
 #include <lvgl.h>
 
 #include "app_fonts.h"
@@ -46,6 +48,13 @@ static void lvgl_log_cb(lv_log_level_t level, const char *buf) {
 void lvgl_runtime_init(void) {
     lv_init();
     lv_tick_set_cb(app_tick);
+
+    /* 打印 FreeRTOS heap 状态以验证 LVGL 是否使用 heap_4 */
+#if defined(configTOTAL_HEAP_SIZE)
+    APP_LOGI("RTOS heap total=%u free=%u", (unsigned)configTOTAL_HEAP_SIZE, (unsigned)xPortGetFreeHeapSize());
+#else
+    APP_LOGI("RTOS heap free=%u", (unsigned)xPortGetFreeHeapSize());
+#endif
 
 #if LV_USE_LOG
     lv_log_register_print_cb(lvgl_log_cb);

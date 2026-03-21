@@ -269,12 +269,11 @@ bool sd_fs_check(uint32_t *total_kb, uint32_t *free_kb, char *msg, uint32_t msg_
         *total_kb = total;
     }
     if (free_kb) {
-        // This SdVolume API does not expose free cluster count; keep non-zero estimate for UI.
-        *free_kb = total;
+        *free_kb = sd_hw_free_kb();
     }
 
     if (msg && msg_len > 0) {
-        snprintf(msg, msg_len, "SD mounted (free is estimated)");
+        snprintf(msg, msg_len, "SD mounted");
     }
     return true;
 }

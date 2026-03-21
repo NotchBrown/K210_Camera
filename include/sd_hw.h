@@ -41,6 +41,7 @@ void sd_hw_unmount(void);
 bool sd_hw_is_mounted(void);
 bool sd_hw_card_present(void);
 uint32_t sd_hw_total_kb(void);
+uint32_t sd_hw_free_kb(void);
 
 SDClass &sd_hw_fs(void);
 SdFile *sd_hw_root_file(void);

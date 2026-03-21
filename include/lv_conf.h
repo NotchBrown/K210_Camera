@@ -28,18 +28,21 @@
    Dynamic memory
  *===================*/
 
-/* Memory size which will be used by the library
- * to store the graphical objects and other data */
-#define LV_MEM_CUSTOM      0                /*1: use custom malloc/free, 0: use the built-in lv_mem_alloc/lv_mem_free*/
+/* Memory allocation strategy
+ * - Set LV_MEM_CUSTOM = 1 to route LVGL allocations to the system heap (heap_4/pvPortMalloc)
+ * - This makes LVGL use the RTOS heap instead of maintaining a separate LVGL pool.
+ * - When using this mode, LV_MEM_SIZE and LV_MEM_AUTO_DEFRAG are ignored. */
+#define LV_MEM_CUSTOM      1               /*1: use custom malloc/free, 0: use the built-in lv_mem_alloc/lv_mem_free*/
 #if LV_MEM_CUSTOM == 0
 #  define LV_MEM_SIZE    (2048U * 1024U)      /*Dedicated LVGL heap to prevent UI OOM during page switching*/
 #  define LV_MEM_ATTR                         /*Complier prefix for big array declaration*/
 #  define LV_MEM_ADR          0               /*Set an address for memory pool instead of allocation it as an array. Can be in external SRAM too.*/
 #  define LV_MEM_AUTO_DEFRAG  1               /*Automatically defrag on free*/
 #else       /*LV_MEM_CUSTOM*/
-#  define LV_MEM_CUSTOM_INCLUDE <stdlib.h>   /*Header for the dynamic memory function*/
-#  define LV_MEM_CUSTOM_ALLOC   malloc       /*Wrapper to malloc*/
-#  define LV_MEM_CUSTOM_FREE    free         /*Wrapper to free*/
+/* Route LVGL allocations to FreeRTOS heap_4 via pvPortMalloc/vPortFree */
+#  define LV_MEM_CUSTOM_INCLUDE "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
+#  define LV_MEM_CUSTOM_ALLOC   pvPortMalloc       /*Wrapper to pvPortMalloc*/
+#  define LV_MEM_CUSTOM_FREE    vPortFree         /*Wrapper to vPortFree*/
 #endif     /*LV_MEM_CUSTOM*/
 
 /* Garbage Collector settings
@@ -422,6 +425,40 @@
 #  define _CRT_SECURE_NO_WARNINGS
 #endif
 
+
+#endif /*End of "Content enable"*/
+// /** 1: Enable system monitor component */
+// #define LV_USE_SYSMON   1
+// #if LV_USE_SYSMON
+//     /** Get the idle percentage. E.g. uint32_t my_get_idle(void); */
+//     #define LV_SYSMON_GET_IDLE lv_os_get_idle_percent
+//     /** 1: Enable usage of lv_os_get_proc_idle_percent.*/
+//     #define LV_SYSMON_PROC_IDLE_AVAILABLE 0
+//     #if LV_SYSMON_PROC_IDLE_AVAILABLE
+//         /** Get the applications idle percentage.
+//          * - Requires `LV_USE_OS == LV_OS_PTHREAD` */
+//         #define LV_SYSMON_GET_PROC_IDLE lv_os_get_proc_idle_percent
+//     #endif
+
+//     /** 1: Show CPU usage and FPS count.
+//      *  - Requires `LV_USE_SYSMON = 1` */
+//     #define LV_USE_PERF_MONITOR 1
+//     #if LV_USE_PERF_MONITOR
+//         #define LV_USE_PERF_MONITOR_POS LV_ALIGN_BOTTOM_RIGHT
+
+//         /** 0: Displays performance data on the screen; 1: Prints performance data using log. */
+//         #define LV_USE_PERF_MONITOR_LOG_MODE 0
+//     #endif
+
+//     /** 1: Show used memory and memory fragmentation.
+//      *     - Requires `LV_USE_STDLIB_MALLOC = LV_STDLIB_BUILTIN`
+//      *     - Requires `LV_USE_SYSMON = 1`*/
+//     #define LV_USE_MEM_MONITOR 1
+//     #if LV_USE_MEM_MONITOR
+//         #define LV_USE_MEM_MONITOR_POS LV_ALIGN_BOTTOM_LEFT
+//     #endif
+// #endif /*LV_USE_SYSMON*/
+
 /*--END OF LV_CONF_H--*/
 
 /*Be sure every define has a default value*/
@@ -429,4 +466,3 @@
 
 #endif /*LV_CONF_H*/
 
-#endif /*End of "Content enable"*/

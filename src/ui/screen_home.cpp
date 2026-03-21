@@ -8,9 +8,9 @@
 LV_IMAGE_DECLARE(_settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
 LV_IMAGE_DECLARE(_photo_camera_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
 LV_IMAGE_DECLARE(_folder_open_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
-LV_IMAGE_DECLARE(_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+// LV_IMAGE_DECLARE(_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
 LV_IMAGE_DECLARE(_terminal_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
-LV_IMAGE_DECLARE(_sensor_occupied_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
+LV_IMAGE_DECLARE(_motion_sensor_active_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
 
 static lv_obj_t *s_home_date = NULL;
 static lv_obj_t *s_home_clock = NULL;
@@ -110,7 +110,7 @@ static void app_file_manager_cb(lv_event_t *event) {
 
 static void app_not_migrated_cb(lv_event_t *event) {
     LV_UNUSED(event);
-    show_home_tip("");
+    // show_home_tip("");
 }
 
 static void calendar_pick_cb(lv_event_t *event) {
@@ -226,33 +226,62 @@ static void build_apps_tab(lv_obj_t *tab_apps) {
     lv_obj_t *item0 = lv_list_add_button(list, &_settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Settings");
     lv_obj_t *item1 = lv_list_add_button(list, &_photo_camera_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Camera");
     lv_obj_t *item2 = lv_list_add_button(list, &_folder_open_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "File Manager");
-    lv_obj_t *item3 = lv_list_add_button(list, &_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Basic Interpreter");
+    // lv_obj_t *item3 = lv_list_add_button(list, &_code_blocks_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Basic Interpreter");
     lv_obj_t *item4 = lv_list_add_button(list, &_terminal_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Terminal");
-    lv_obj_t *item5 = lv_list_add_button(list, &_sensor_occupied_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Face Detection (Haar)");
+    lv_obj_t *item5 = lv_list_add_button(list, &_motion_sensor_active_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24, "Object Detection");
 
     lv_obj_add_event_cb(item0, app_settings_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item1, app_camera_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item2, app_file_manager_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(item3, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
+    // lv_obj_add_event_cb(item3, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item4, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item5, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
 
-    s_home_tip = lv_label_create(tab_apps);
-    lv_obj_set_pos(s_home_tip, 0, 158);
-    lv_obj_set_size(s_home_tip, 290, 26);
-    lv_obj_set_style_text_align(s_home_tip, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_text_font(s_home_tip, app_font_ui(), LV_PART_MAIN);
-    lv_label_set_text(s_home_tip, "");
+    // s_home_tip = lv_label_create(tab_apps);
+    // lv_obj_set_pos(s_home_tip, 0, 158);
+    // lv_obj_set_size(s_home_tip, 290, 26);
+    // lv_obj_set_style_text_align(s_home_tip, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    // lv_obj_set_style_text_font(s_home_tip, app_font_ui(), LV_PART_MAIN);
+    // lv_label_set_text(s_home_tip, "");
 }
 
 static void screen_delete_cb(lv_event_t *event) {
     LV_UNUSED(event);
     APP_LOGI("Home: screen delete start");
+
     if (s_refresh_timer) {
         lv_timer_delete(s_refresh_timer);
         s_refresh_timer = NULL;
     }
+
+    /* 日历创建在 lv_layer_top(), 需要显式删除 */
     close_home_calendar();
+
+    /* 如果有任何对象没有被父对象一并删除，显式删除它们 */
+    if (s_home_date && lv_obj_is_valid(s_home_date)) {
+        lv_obj_delete(s_home_date);
+    }
+    if (s_home_clock && lv_obj_is_valid(s_home_clock)) {
+        lv_obj_delete(s_home_clock);
+    }
+    if (s_home_analog && lv_obj_is_valid(s_home_analog)) {
+        lv_obj_delete(s_home_analog);
+    }
+
+    /* 指针针（通常是 s_home_analog 的子对象）若仍有效也删除 */
+    if (s_hour_needle && lv_obj_is_valid(s_hour_needle)) {
+        lv_obj_delete(s_hour_needle);
+    }
+    if (s_min_needle && lv_obj_is_valid(s_min_needle)) {
+        lv_obj_delete(s_min_needle);
+    }
+    if (s_sec_needle && lv_obj_is_valid(s_sec_needle)) {
+        lv_obj_delete(s_sec_needle);
+    }
+
+    if (s_home_tip && lv_obj_is_valid(s_home_tip)) {
+        lv_obj_delete(s_home_tip);
+    }
 
     s_home_date = NULL;
     s_home_clock = NULL;

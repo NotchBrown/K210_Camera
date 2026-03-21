@@ -21,7 +21,6 @@ static char s_browser_fs_path[128] = "";
 static char s_selected_file_path[128] = "";
 static bool s_last_storage_available = false;
 static bool s_last_storage_checked = false;
-static uint8_t s_retry_sec = 0;
 static bool s_refresh_pending = false;
 static bool s_browser_busy = false;
 
@@ -431,7 +430,8 @@ static void refresh_file_list(void) {
     lv_obj_clean(s_file_list);
 
     if (!status.storage_checked) {
-        lv_list_add_button(s_file_list, LV_SYMBOL_REFRESH, "Checking storage...");
+        lv_list_add_button(s_file_list, LV_SYMBOL_WARNING, "Storage not checked.");
+        lv_list_add_button(s_file_list, LV_SYMBOL_REFRESH, "Open Settings > SD FS");
         return;
     }
 
@@ -540,17 +540,6 @@ static void timer_cb(lv_timer_t *timer) {
 
     app_system_status_t status;
     app_manager_get_system_status(&status);
-
-    // 优化存储检查逻辑
-    if (status.storage_checked && !status.storage_available) {
-        s_retry_sec++;
-        if (s_retry_sec >= 10U) {
-            s_retry_sec = 0;
-            app_manager_request_storage_check();
-        }
-    } else {
-        s_retry_sec = 0;
-    }
 
     // 仅记录状态变化，避免在定时器里触发阻塞式文件系统访问导致卡顿。
     if (status.storage_available != s_last_storage_available ||
@@ -667,7 +656,6 @@ static void screen_delete_cb(lv_event_t *event) {
     s_op_result_label_folder = NULL;
     s_last_storage_available = false;
     s_last_storage_checked = false;
-    s_retry_sec = 0;
     s_refresh_pending = false;
     s_browser_busy = false;
     s_browser_fs_path[0] = '\0';
@@ -748,7 +736,6 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_label_set_long_mode(s_browser_path_label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(s_browser_path_label, "Path: /SD");
 
-    app_manager_request_storage_check();
     s_last_storage_checked = false;
     s_last_storage_available = false;
     browser_set_path("/");

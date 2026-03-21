@@ -187,16 +187,16 @@ static void refresh_storage_text(void) {
     }
     app_system_status_t status;
     app_manager_get_system_status(&status);
-    
+
     char buf[128];
     if (status.storage_checked) {
         if (status.storage_available) {
-            lv_snprintf(buf, sizeof(buf), "SD Card: Available\nTotal: %d MB\nFree: %d MB\n\n%s", 
+            lv_snprintf(buf, sizeof(buf), "SD Card: Mounted\nTotal: %d MB\nFree: %d MB\n\n%s",
                        (int)(status.storage_total_kb / 1024), 
                        (int)(status.storage_free_kb / 1024), 
                        status.storage_message);
         } else {
-            lv_snprintf(buf, sizeof(buf), "SD Card: Not Available\n\n%s", status.storage_message);
+            lv_snprintf(buf, sizeof(buf), "SD Card: Not Mounted\n\n%s", status.storage_message);
         }
     } else {
         lv_snprintf(buf, sizeof(buf), "%s", status.storage_message);
@@ -586,7 +586,7 @@ static void build_system_tab(lv_obj_t *tab) {
 
     lv_obj_t *info = lv_label_create(info_cont);
     lv_obj_set_pos(info, 10, 35);
-    lv_obj_set_size(info, 180, 120);
+    lv_obj_set_size(info, 180, 200);
     lv_obj_add_flag(info, LV_OBJ_FLAG_SCROLLABLE);
     lv_label_set_text(info,
         "A Personal Digital Assistant powered by K210 chip\n\n"

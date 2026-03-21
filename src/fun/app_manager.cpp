@@ -360,8 +360,7 @@ void app_manager_init(void) {
     s_system_status.storage_total_kb = 0;
     s_system_status.storage_free_kb = 0;
     snprintf(s_system_status.storage_message, sizeof(s_system_status.storage_message),
-             "%s", "Storage auto-check pending...");
-    sd_storage_service_request_check();
+             "%s", "Storage not checked. Open Settings > SD FS and tap Check.");
     
     APP_LOGI("AppMgr: init done, load home");
     app_manager_navigate_to(SCREEN_ID_HOME);

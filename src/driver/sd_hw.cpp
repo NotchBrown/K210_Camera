@@ -15,6 +15,7 @@ static SdVolume s_volume;
 static SdFile s_root;
 static bool s_mounted = false;
 static bool s_spi_inited = false;
+
 static void set_msg(char *msg, uint32_t msg_len, const char *text) {
     if (!msg || msg_len == 0) {
         return;
@@ -108,4 +109,12 @@ uint32_t sd_hw_total_kb(void) {
     kb *= s_volume.clusterCount();
     kb /= 2U;
     return kb;
+}
+
+uint32_t sd_hw_free_kb(void) {
+    if (!s_mounted) {
+        return 0;
+    }
+
+    return 0;
 }
