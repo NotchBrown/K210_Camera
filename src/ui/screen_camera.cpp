@@ -1,8 +1,12 @@
 #include <lvgl.h>
 
 #include <string.h>
+#include <stdio.h>
 
 #include <Sipeed_OV2640.h>
+
+#include "sd_fs.h"
+#include "sd_hw.h"
 
 #include "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
 #include "kendryte-standalone-sdk/lib/freertos/include/task.h"
@@ -45,6 +49,9 @@ static volatile bool s_preview_task_alive = false;
 static TaskHandle_t s_preview_task = NULL;
 static uint16_t s_preview_period_ms = 83;
 static bool s_preview_first_frame_logged = false;
+
+static bool preview_task_start(void);
+static void preview_task_stop(void);
 
 static framerate_t map_ov2640_framerate(uint16_t fps) {
     if (fps <= 5U) {
@@ -109,6 +116,303 @@ static void map_capture_profile(uint8_t index, framesize_t *frame_size, uint16_t
             *fps = 15;
             break;
     }
+}
+
+static void map_capture_dimensions(uint8_t index, uint16_t *width, uint16_t *height) {
+    if (!width || !height) {
+        return;
+    }
+
+    switch (index) {
+        case 0:
+            *width = 640;
+            *height = 480;
+            break;
+        case 1:
+            *width = 320;
+            *height = 240;
+            break;
+        case 2:
+            *width = 160;
+            *height = 120;
+            break;
+        default:
+            *width = 320;
+            *height = 240;
+            break;
+    }
+}
+
+static bool open_dir_by_path(const char *path, SdFile *out_dir) {
+    if (!path || !out_dir) {
+        return false;
+    }
+
+    SdFile *root = sd_hw_root_file();
+    if (!root) {
+        return false;
+    }
+
+    if (strcmp(path, "/") == 0) {
+        return false;
+    }
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s", path);
+
+    SdFile cur_a;
+    SdFile cur_b;
+    SdFile *parent = root;
+    SdFile *child = &cur_a;
+
+    char *ctx = NULL;
+    char *token = strtok_r(buf, "/", &ctx);
+    while (token) {
+        if (!child->open(*parent, token, O_READ)) {
+            if (parent != root) {
+                parent->close();
+            }
+            return false;
+        }
+
+        if (!child->isDir()) {
+            child->close();
+            if (parent != root) {
+                parent->close();
+            }
+            return false;
+        }
+
+        if (parent != root) {
+            parent->close();
+        }
+        parent = child;
+        child = (child == &cur_a) ? &cur_b : &cur_a;
+
+        token = strtok_r(NULL, "/", &ctx);
+    }
+
+    if (parent == root) {
+        return false;
+    }
+
+    *out_dir = *parent;
+    return true;
+}
+
+static bool open_new_photo_file(SdFile *out_file, uint32_t *out_index, char *out_path, size_t out_path_len) {
+    if (!out_file || !out_index || !out_path || out_path_len == 0U) {
+        return false;
+    }
+
+    for (uint32_t index = 0; index < 100000000UL; index++) {
+        char path[64];
+        snprintf(path, sizeof(path), "/DCMI/PHOTO/%lu.BMP", (unsigned long)index);
+        if (sd_fs_exists(path)) {
+            continue;
+        }
+
+        SdFile photo_dir;
+        if (!open_dir_by_path("/DCMI/PHOTO", &photo_dir)) {
+            return false;
+        }
+
+        char name[16];
+        snprintf(name, sizeof(name), "%lu.BMP", (unsigned long)index);
+        bool ok = out_file->open(photo_dir, name, O_RDWR | O_CREAT | O_EXCL);
+        photo_dir.close();
+        if (!ok) {
+            continue;
+        }
+
+        snprintf(out_path, out_path_len, "%s", path);
+        *out_index = index;
+        return true;
+    }
+
+    return false;
+}
+
+static void write_le16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFFU);
+    p[1] = (uint8_t)((v >> 8) & 0xFFU);
+}
+
+static void write_le32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFU);
+    p[1] = (uint8_t)((v >> 8) & 0xFFU);
+    p[2] = (uint8_t)((v >> 16) & 0xFFU);
+    p[3] = (uint8_t)((v >> 24) & 0xFFU);
+}
+
+static bool sdfile_write_all(SdFile *file, const uint8_t *data, uint32_t len) {
+    if (!file || !data) {
+        return false;
+    }
+
+    uint32_t off = 0;
+    while (off < len) {
+        uint16_t chunk = (uint16_t)((len - off) > 512U ? 512U : (len - off));
+        int wrote = file->write(data + off, chunk);
+        if (wrote <= 0) {
+            return false;
+        }
+        off += (uint32_t)wrote;
+    }
+    return true;
+}
+
+static bool write_bmp_header_rgb565(SdFile *file, uint16_t width, uint16_t height) {
+    uint32_t pixel_bytes = (uint32_t)width * (uint32_t)height * 2U;
+    uint32_t data_offset = 14U + 40U + 12U;
+    uint32_t file_size = data_offset + pixel_bytes;
+
+    uint8_t header[66];
+    memset(header, 0, sizeof(header));
+
+    header[0] = 'B';
+    header[1] = 'M';
+    write_le32(&header[2], file_size);
+    write_le32(&header[10], data_offset);
+
+    write_le32(&header[14], 40U);
+    write_le32(&header[18], (uint32_t)width);
+    write_le32(&header[22], (uint32_t)(-(int32_t)height));
+    write_le16(&header[26], 1U);
+    write_le16(&header[28], 16U);
+    write_le32(&header[30], 3U);  // BI_BITFIELDS
+    write_le32(&header[34], pixel_bytes);
+
+    write_le32(&header[54], 0xF800U);
+    write_le32(&header[58], 0x07E0U);
+    write_le32(&header[62], 0x001FU);
+
+    return sdfile_write_all(file, header, sizeof(header));
+}
+
+static bool write_bmp_pixels_from_be565(SdFile *file, const uint8_t *raw_be, uint16_t width, uint16_t height) {
+    if (!file || !raw_be) {
+        return false;
+    }
+
+    uint32_t total = (uint32_t)width * (uint32_t)height * 2U;
+    uint32_t off = 0;
+    uint8_t out[512];
+
+    while (off < total) {
+        uint32_t chunk = total - off;
+        if (chunk > sizeof(out)) {
+            chunk = sizeof(out);
+        }
+        if ((chunk & 1U) != 0U) {
+            chunk--;
+        }
+
+        for (uint32_t i = 0; i < chunk; i += 2U) {
+            out[i] = raw_be[off + i + 1U];
+            out[i + 1U] = raw_be[off + i];
+        }
+
+        if (!sdfile_write_all(file, out, chunk)) {
+            return false;
+        }
+        off += chunk;
+    }
+    return true;
+}
+
+static bool save_snapshot_to_sd(char *saved_path, size_t saved_path_len) {
+    if (!saved_path || saved_path_len == 0U) {
+        return false;
+    }
+
+    if (!s_camera) {
+        APP_LOGE("Camera: snapshot save failed, camera not ready");
+        return false;
+    }
+
+    app_camera_settings_t cfg;
+    app_manager_get_camera_settings(&cfg);
+
+    uint16_t capture_w = 320;
+    uint16_t capture_h = 240;
+    map_capture_dimensions(cfg.capture_res_index, &capture_w, &capture_h);
+    uint32_t frame_bytes = (uint32_t)capture_w * (uint32_t)capture_h * 2U;
+
+    bool worker_was_running = s_preview_task_alive;
+    if (worker_was_running) {
+        preview_task_stop();
+    }
+
+    bool ok = false;
+    const uint8_t *raw = NULL;
+    SdFile out;
+    bool out_opened = false;
+    uint32_t file_index = 0;
+    char photo_path[64] = {0};
+    bool hdr_ok = false;
+    bool pix_ok = false;
+
+    char mount_msg[96];
+    if (!sd_hw_is_mounted() && !sd_hw_mount(mount_msg, sizeof(mount_msg))) {
+        APP_LOGE("Camera: SD mount failed: %s", mount_msg);
+        goto cleanup;
+    }
+
+    char fs_msg[96];
+    if (!sd_fs_mkdir("/DCMI", fs_msg, sizeof(fs_msg))) {
+        APP_LOGE("Camera: mkdir /DCMI failed: %s", fs_msg);
+        goto cleanup;
+    }
+    if (!sd_fs_mkdir("/DCMI/PHOTO", fs_msg, sizeof(fs_msg))) {
+        APP_LOGE("Camera: mkdir /DCMI/PHOTO failed: %s", fs_msg);
+        goto cleanup;
+    }
+
+    raw = s_camera->snapshot();
+    if (!raw) {
+        APP_LOGE("Camera: snapshot capture failed");
+        goto cleanup;
+    }
+
+    if (!open_new_photo_file(&out, &file_index, photo_path, sizeof(photo_path))) {
+        APP_LOGE("Camera: failed to allocate photo file name");
+        goto cleanup;
+    }
+    out_opened = true;
+
+    hdr_ok = write_bmp_header_rgb565(&out, capture_w, capture_h);
+    if (hdr_ok) {
+        pix_ok = write_bmp_pixels_from_be565(&out, raw, capture_w, capture_h);
+    }
+    out.close();
+    out_opened = false;
+    if (!hdr_ok || !pix_ok) {
+        APP_LOGE("Camera: photo write failed idx=%lu frame_bytes=%lu",
+                 (unsigned long)file_index,
+                 (unsigned long)frame_bytes);
+        goto cleanup;
+    }
+
+    snprintf(saved_path, saved_path_len, "%s", photo_path);
+    APP_LOGI("Camera: photo saved path=%s size=%lu res=%ux%u fmt_idx=%u",
+             saved_path,
+             (unsigned long)frame_bytes,
+             (unsigned)capture_w,
+             (unsigned)capture_h,
+             (unsigned)cfg.pix_format_index);
+    ok = true;
+
+cleanup:
+    if (out_opened) {
+        out.close();
+    }
+    if (worker_was_running) {
+        if (!preview_task_start()) {
+            APP_LOGE("Camera: preview task restart failed");
+        }
+    }
+    return ok;
 }
 
 static void apply_tabview_style(lv_obj_t *tabview) {
@@ -543,8 +847,12 @@ static void back_home_cb(lv_event_t *event) {
 
 static void take_snapshot_cb(lv_event_t *event) {
     LV_UNUSED(event);
-    bool ok = app_manager_camera_take_snapshot();
-    APP_LOGI("Camera: snapshot result=%d", (int)ok);
+    char saved_path[64];
+    bool ok = save_snapshot_to_sd(saved_path, sizeof(saved_path));
+    if (ok) {
+        (void)app_manager_camera_take_snapshot();
+    }
+    APP_LOGI("Camera: snapshot result=%d path=%s", (int)ok, ok ? saved_path : "-");
 }
 
 static void record_toggle_cb(lv_event_t *event) {
