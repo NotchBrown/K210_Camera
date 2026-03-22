@@ -4,6 +4,10 @@
 #include "app_log.h"
 #include "app_manager.h"
 #include "screen_home.h"
+#include "kendryte-standalone-sdk/lib/freertos/include/FreeRTOS.h"
+#include "kendryte-standalone-sdk/lib/freertos/include/task.h"
+
+/* test task removed */
 
 LV_IMAGE_DECLARE(_settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
 LV_IMAGE_DECLARE(_photo_camera_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24_RGB565_24x24);
@@ -210,6 +214,8 @@ static void build_start_tab(lv_obj_t *tab_start) {
     lv_obj_set_style_text_font(s_home_date, app_font_ui(), LV_PART_MAIN);
     lv_obj_add_flag(s_home_date, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_home_date, open_date_calendar_cb, LV_EVENT_CLICKED, NULL);
+
+    /* Test button removed */
 }
 
 static void build_apps_tab(lv_obj_t *tab_apps) {

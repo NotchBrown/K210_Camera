@@ -9,7 +9,6 @@
 #include "sd_storage_service.h"
 
 
-
 void setup() {
     Serial.begin(115200);
 
@@ -22,7 +21,7 @@ void setup() {
 //    BaseType_t ok2 = xTaskCreate(lvgl_monitor_task, "mon", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
     BaseType_t ok3 = xTaskCreate(sd_storage_service_task, "sd_storage_service", 6144, NULL, tskIDLE_PRIORITY + 3, NULL);
     BaseType_t ok4 = xTaskCreate(app_manager_service_task, "svc", 4096, NULL, tskIDLE_PRIORITY + 1, NULL);
-
+    /* Test task is started from UI Test button */
     if (ok1 != pdPASS || ok3 != pdPASS || ok4 != pdPASS) {
         APP_LOGE("xTaskCreate failed: ok1=%d ok3=%d ok4=%d", ok1, ok3, ok4);
         while (1) {

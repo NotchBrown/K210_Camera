@@ -33,7 +33,9 @@ typedef struct {
     char path2[128];
     char *out;
     uint32_t out_len;
-    bool *result_ptr;
+    sd_storage_callback_t callback;
+    void *user_data;
+    QueueHandle_t reply_q; // optional: used by sync callers to receive bool result
     uint8_t retries;
     uint8_t attempt;
 } sd_storage_req_t;
@@ -162,27 +164,44 @@ static bool request_sync(sd_storage_op_t op,
         return false;
     }
 
+    // Prevent a task from calling sync API from the storage task itself
+    if (xTaskGetCurrentTaskHandle() == s_task) {
+        set_text(out, out_len, "Cannot call sync from storage task");
+        return false;
+    }
+
     bool result = false;
     sd_storage_req_t req = { SD_STORAGE_OP_NONE, NULL, "", "", NULL, 0, NULL, 0, 0 };
     req.op = op;
-    req.requester = xTaskGetCurrentTaskHandle();
+    req.requester = NULL;
     req.out = out;
     req.out_len = out_len;
-    req.result_ptr = &result;
+    req.callback = NULL;
+    req.user_data = NULL;
+    req.reply_q = xQueueCreate(1, sizeof(bool));
     req.retries = retries;
     snprintf(req.path1, sizeof(req.path1), "%s", path1 ? path1 : "");
     snprintf(req.path2, sizeof(req.path2), "%s", path2 ? path2 : "");
 
+    if (!req.reply_q) {
+        set_text(out, out_len, "Reply queue alloc failed");
+        return false;
+    }
+
     if (!enqueue_request(&req, 500U)) {
         set_text(out, out_len, "Storage queue busy");
+        vQueueDelete(req.reply_q);
         return false;
     }
 
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SD_STORAGE_WAIT_TIMEOUT_MS)) == 0) {
+    // Wait for the boolean result or timeout
+    if (xQueueReceive(req.reply_q, &result, pdMS_TO_TICKS(SD_STORAGE_WAIT_TIMEOUT_MS)) == pdFALSE) {
         set_text(out, out_len, "Storage op timeout");
+        vQueueDelete(req.reply_q);
         return false;
     }
 
+    vQueueDelete(req.reply_q);
     return result;
 }
 
@@ -302,16 +321,26 @@ void sd_storage_service_task(void *arg) {
 
                 if (!card_present) {
                     set_text(active.out, active.out_len, "Card removed");
-                    if (active.result_ptr) {
-                        *(active.result_ptr) = false;
+                    // notify callback or reply queue
+                    if (active.callback) {
+                        active.callback(false, active.out ? active.out : "Card removed", active.user_data);
+                    }
+                    if (active.reply_q) {
+                        bool r = false;
+                        xQueueSend(active.reply_q, &r, 0);
                     }
                     status_set_state(SD_STORAGE_STATE_INIT_OK_TASK_FAILED, "Card removed");
                     break;
                 }
 
                 bool ok = do_op(&active);
-                if (active.result_ptr) {
-                    *(active.result_ptr) = ok;
+                // reply via callback or reply queue
+                if (active.callback) {
+                    active.callback(ok, active.out ? active.out : (ok ? "OK" : "Failed"), active.user_data);
+                }
+                if (active.reply_q) {
+                    bool r = ok;
+                    xQueueSend(active.reply_q, &r, 0);
                 }
                 APP_LOGI("SDSvc: op done=%d op=%d attempt=%u", ok ? 1 : 0, (int)active.op, (unsigned)active.attempt);
                 status_set_state(ok ? SD_STORAGE_STATE_INIT_OK_TASK_SUCCESS : SD_STORAGE_STATE_INIT_OK_TASK_FAILED,
@@ -328,18 +357,12 @@ void sd_storage_service_task(void *arg) {
                              (unsigned)active.retries);
                     status_set_state(SD_STORAGE_STATE_INIT_OK_BUSY, "Retry storage op...");
                 } else {
-                    if (has_active && active.requester) {
-                        xTaskNotifyGive(active.requester);
-                    }
                     has_active = false;
                     status_set_state(SD_STORAGE_STATE_INIT_OK_IDLE, "Storage idle");
                 }
                 break;
 
             case SD_STORAGE_STATE_INIT_OK_TASK_SUCCESS:
-                if (has_active && active.requester) {
-                    xTaskNotifyGive(active.requester);
-                }
                 has_active = false;
                 status_set_state(SD_STORAGE_STATE_INIT_OK_IDLE, "Storage idle");
                 break;
@@ -399,44 +422,62 @@ bool sd_storage_service_touch_file(const char *path, char *msg, uint32_t msg_len
     return request_sync(SD_STORAGE_OP_TOUCH_FILE, path, NULL, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES);
 }
 
-static bool invoke_async_result(bool ok, const char *result, sd_storage_callback_t callback, void *user_data) {
-    if (callback) {
-        callback(ok, result, user_data);
+static bool enqueue_async_req(sd_storage_op_t op,
+                              const char *path1,
+                              const char *path2,
+                              char *out,
+                              uint32_t out_len,
+                              uint8_t retries,
+                              sd_storage_callback_t callback,
+                              void *user_data) {
+    if (!s_queue) {
+        if (callback) callback(false, "Storage service not ready", user_data);
+        return false;
     }
-    return ok;
+
+    sd_storage_req_t req = { SD_STORAGE_OP_NONE, NULL, "", "", NULL, 0, NULL, 0, 0 };
+    req.op = op;
+    req.requester = NULL;
+    req.callback = callback;
+    req.user_data = user_data;
+    req.reply_q = NULL;
+    req.out = out;
+    req.out_len = out_len;
+    req.retries = retries;
+    snprintf(req.path1, sizeof(req.path1), "%s", path1 ? path1 : "");
+    snprintf(req.path2, sizeof(req.path2), "%s", path2 ? path2 : "");
+
+    if (!enqueue_request(&req, 0)) {
+        if (callback) callback(false, "Storage queue busy", user_data);
+        return false;
+    }
+    return true;
 }
 
 bool sd_storage_service_list_root_async(char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_list_root(out, out_len);
-    return invoke_async_result(ok, out, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_LIST_ROOT, NULL, NULL, out, out_len, 0, callback, user_data);
 }
 
 bool sd_storage_service_list_dir_async(const char *path, char *out, uint32_t out_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_list_dir(path, out, out_len);
-    return invoke_async_result(ok, out, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_LIST_DIR, path, NULL, out, out_len, 0, callback, user_data);
 }
 
 bool sd_storage_service_mkdir_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_mkdir(path, msg, msg_len);
-    return invoke_async_result(ok, msg, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_MKDIR, path, NULL, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES, callback, user_data);
 }
 
 bool sd_storage_service_delete_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_delete(path, msg, msg_len);
-    return invoke_async_result(ok, msg, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_DELETE, path, NULL, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES, callback, user_data);
 }
 
 bool sd_storage_service_copy_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_copy(from, to, msg, msg_len);
-    return invoke_async_result(ok, msg, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_COPY, from, to, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES, callback, user_data);
 }
 
 bool sd_storage_service_rename_async(const char *from, const char *to, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_rename(from, to, msg, msg_len);
-    return invoke_async_result(ok, msg, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_RENAME, from, to, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES, callback, user_data);
 }
 
 bool sd_storage_service_touch_file_async(const char *path, char *msg, uint32_t msg_len, sd_storage_callback_t callback, void *user_data) {
-    bool ok = sd_storage_service_touch_file(path, msg, msg_len);
-    return invoke_async_result(ok, msg, callback, user_data);
+    return enqueue_async_req(SD_STORAGE_OP_TOUCH_FILE, path, NULL, msg, msg_len, SD_STORAGE_DEFAULT_RETRIES, callback, user_data);
 }

@@ -6,6 +6,7 @@
 #include "app_manager.h"
 #include "screen_file_manager.h"
 #include "sd_fs.h"
+#include "screen_waiting.h"
 
 static lv_obj_t *s_clock_label = NULL;
 static lv_timer_t *s_refresh_timer = NULL;
@@ -563,14 +564,11 @@ static void file_operation_cb(lv_event_t *event) {
     uint32_t id = lv_buttonmatrix_get_selected_button(btnm);
     bool is_folder_op = (lv_event_get_user_data(event) != NULL);
     
-    const char *const *btn_map = lv_buttonmatrix_get_map(btnm);
-    if (btn_map && btn_map[id]) {
-        const char *btn_text = btn_map[id];
-        if (btn_text[0] == '\0' || strcmp(btn_text, "\n") == 0) {
-            return;
-        }
-
-        lv_obj_t *ta_from = is_folder_op ? s_folder_ta_from : s_file_ta_from;
+    const char *btn_text = lv_buttonmatrix_get_button_text(btnm, id);
+    if (!btn_text || btn_text[0] == '\0' || strcmp(btn_text, "\n") == 0) {
+        return;
+    }
+    lv_obj_t *ta_from = is_folder_op ? s_folder_ta_from : s_file_ta_from;
         lv_obj_t *ta_to = is_folder_op ? s_folder_ta_to : s_file_ta_to;
         const char *from = ta_from ? lv_textarea_get_text(ta_from) : "";
         const char *to = ta_to ? lv_textarea_get_text(ta_to) : "";
@@ -588,26 +586,41 @@ static void file_operation_cb(lv_event_t *event) {
                  from_norm,
                  to_norm);
 
-        if (strcmp(btn_text, "Delete (From)") == 0 || strcmp(btn_text, "Cut") == 0 || strcmp(btn_text, "Copy") == 0) {
+        // Validate paths according to operation type:
+        if (strcmp(btn_text, "Delete (From)") == 0) {
             if (from_norm[0] == '\0' || strcmp(from_norm, "/") == 0) {
                 lv_snprintf(msg, sizeof(msg), "%s", "Invalid From path");
                 APP_LOGE("FileManager: invalid from path");
                 set_op_result(msg, true);
                 return;
             }
-        }
-        if (strcmp(btn_text, "New (To)") == 0 || strcmp(btn_text, "Cut") == 0 || strcmp(btn_text, "Copy") == 0) {
+        } else if (strcmp(btn_text, "New (To)") == 0) {
             if (to_norm[0] == '\0' || strcmp(to_norm, "/") == 0) {
                 lv_snprintf(msg, sizeof(msg), "%s", "Invalid To path");
                 APP_LOGE("FileManager: invalid to path");
                 set_op_result(msg, true);
                 return;
             }
-        }
-        if ((strcmp(btn_text, "Cut") == 0 || strcmp(btn_text, "Copy") == 0) && strcmp(from_norm, to_norm) == 0) {
-            lv_snprintf(msg, sizeof(msg), "%s", "From and To are the same");
-            set_op_result(msg, true);
-            return;
+        } else if (strcmp(btn_text, "Cut") == 0 || strcmp(btn_text, "Copy") == 0) {
+            if (from_norm[0] == '\0' || strcmp(from_norm, "/") == 0) {
+                lv_snprintf(msg, sizeof(msg), "%s", "Invalid From path");
+                APP_LOGE("FileManager: invalid from path");
+                set_op_result(msg, true);
+                return;
+            }
+            if (to_norm[0] == '\0' || strcmp(to_norm, "/") == 0) {
+                lv_snprintf(msg, sizeof(msg), "%s", "Invalid To path");
+                APP_LOGE("FileManager: invalid to path");
+                set_op_result(msg, true);
+                return;
+            }
+            if (strcmp(from_norm, to_norm) == 0) {
+                lv_snprintf(msg, sizeof(msg), "%s", "From and To are the same");
+                set_op_result(msg, true);
+                return;
+            }
+        } else {
+            // Unsupported operation: no additional validation here
         }
 
         // If destination exists, ask for overwrite confirmation for Copy/Cut/New
@@ -645,6 +658,7 @@ static void file_operation_cb(lv_event_t *event) {
                 if (code != LV_EVENT_CLICKED) return;
                 confirm_ctx_t *ctx = (confirm_ctx_t *)lv_event_get_user_data(e);
                 if (!ctx) return;
+                screen_waiting_show("Processing...");
                 char outmsg[128] = "";
                 (void)app_manager_storage_delete(ctx->to, outmsg, sizeof(outmsg));
                 bool res = false;
@@ -661,6 +675,7 @@ static void file_operation_cb(lv_event_t *event) {
                 }
                 set_op_result(outmsg[0] ? outmsg : (res ? "Operation success" : "Operation failed"), !res);
                 if (res) request_refresh_file_list();
+                screen_waiting_close();
                 // close msgbox and cleanup
                 lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
                 lv_obj_t *footer = lv_obj_get_parent((const lv_obj_t *)btn);
@@ -684,6 +699,9 @@ static void file_operation_cb(lv_event_t *event) {
         }
 
         // No existing destination or user confirmed; perform operation now
+        char wait_msg[64];
+        lv_snprintf(wait_msg, sizeof(wait_msg), "%s...", btn_text);
+        screen_waiting_show(wait_msg);
         if (strcmp(btn_text, "Delete (From)") == 0) {
             ok = app_manager_storage_delete(from_norm, msg, sizeof(msg));
         } else if (strcmp(btn_text, "New (To)") == 0) {
@@ -701,6 +719,8 @@ static void file_operation_cb(lv_event_t *event) {
             ok = false;
         }
 
+        screen_waiting_close();
+
         if (ok) {
             APP_LOGI("FileManager: op ok: %s", msg);
             set_op_result(msg[0] ? msg : "Operation success", false);
@@ -710,7 +730,6 @@ static void file_operation_cb(lv_event_t *event) {
             set_op_result(msg[0] ? msg : "Operation failed", true);
         }
     }
-}
 
 static void screen_delete_cb(lv_event_t *event) {
     LV_UNUSED(event);
