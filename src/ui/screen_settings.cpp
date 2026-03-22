@@ -20,18 +20,18 @@ static lv_obj_t *s_kb = NULL;
 static lv_obj_t *s_storage_status_label = NULL;
 
 static lv_obj_t *s_dd_cap_res = NULL;
+static lv_obj_t *s_dd_pix_fmt = NULL;
+static lv_obj_t *s_dd_frame_rate = NULL;
 static lv_obj_t *s_dd_agc_ceiling = NULL;
+static lv_obj_t *s_dd_brightness = NULL;
+static lv_obj_t *s_dd_contrast = NULL;
+static lv_obj_t *s_dd_saturation = NULL;
 static lv_obj_t *s_cb_agc = NULL;
 static lv_obj_t *s_cb_aec = NULL;
 static lv_obj_t *s_cb_awb = NULL;
-static lv_obj_t *s_cb_awb_gain = NULL;
-static lv_obj_t *s_cb_test_mode = NULL;
+static lv_obj_t *s_cb_color_bar = NULL;
 static lv_obj_t *s_cb_h_mirror = NULL;
 static lv_obj_t *s_cb_v_flip = NULL;
-static lv_obj_t *s_slider_ae = NULL;
-static lv_obj_t *s_cb_edge_enh = NULL;
-static lv_obj_t *s_cb_edge_auto = NULL;
-static lv_obj_t *s_slider_edge_val = NULL;
 
 static lv_timer_t *s_refresh_timer = NULL;
 static lv_timer_t *s_storage_timer = NULL;
@@ -243,6 +243,20 @@ static void load_camera_settings_to_ui(void) {
         else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
         lv_roller_set_selected(s_dd_cap_res, idx, LV_ANIM_OFF);
     }
+    if (s_dd_pix_fmt) {
+        uint16_t cnt = lv_roller_get_option_count(s_dd_pix_fmt);
+        uint16_t idx = cfg.pix_format_index;
+        if (cnt == 0U) idx = 0U;
+        else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
+        lv_roller_set_selected(s_dd_pix_fmt, idx, LV_ANIM_OFF);
+    }
+    if (s_dd_frame_rate) {
+        uint16_t cnt = lv_roller_get_option_count(s_dd_frame_rate);
+        uint16_t idx = cfg.frame_rate_index;
+        if (cnt == 0U) idx = 0U;
+        else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
+        lv_roller_set_selected(s_dd_frame_rate, idx, LV_ANIM_OFF);
+    }
     if (s_dd_agc_ceiling) {
         uint16_t cnt = lv_roller_get_option_count(s_dd_agc_ceiling);
         uint16_t idx = cfg.agc_ceiling_index;
@@ -250,12 +264,14 @@ static void load_camera_settings_to_ui(void) {
         else if (idx >= cnt) idx = (uint16_t)(cnt - 1U);
         lv_roller_set_selected(s_dd_agc_ceiling, idx, LV_ANIM_OFF);
     }
-    if (s_slider_ae) {
-        lv_roller_set_selected(s_slider_ae, (uint16_t)(cfg.ae_level + 2), LV_ANIM_OFF);
+    if (s_dd_brightness) {
+        lv_roller_set_selected(s_dd_brightness, (uint16_t)(cfg.brightness_level + 2), LV_ANIM_OFF);
     }
-    if (s_slider_edge_val) {
-        uint16_t idx = (cfg.edge_val >= 255U) ? 32U : (uint16_t)(cfg.edge_val / 8U);
-        lv_roller_set_selected(s_slider_edge_val, idx, LV_ANIM_OFF);
+    if (s_dd_contrast) {
+        lv_roller_set_selected(s_dd_contrast, (uint16_t)(cfg.contrast_level + 2), LV_ANIM_OFF);
+    }
+    if (s_dd_saturation) {
+        lv_roller_set_selected(s_dd_saturation, (uint16_t)(cfg.saturation_level + 2), LV_ANIM_OFF);
     }
 
     if (s_cb_agc) {
@@ -270,13 +286,9 @@ static void load_camera_settings_to_ui(void) {
         if (cfg.awb) lv_obj_add_state(s_cb_awb, LV_STATE_CHECKED);
         else lv_obj_clear_state(s_cb_awb, LV_STATE_CHECKED);
     }
-    if (s_cb_awb_gain) {
-        if (cfg.awb_gain) lv_obj_add_state(s_cb_awb_gain, LV_STATE_CHECKED);
-        else lv_obj_clear_state(s_cb_awb_gain, LV_STATE_CHECKED);
-    }
-    if (s_cb_test_mode) {
-        if (cfg.test_mode) lv_obj_add_state(s_cb_test_mode, LV_STATE_CHECKED);
-        else lv_obj_clear_state(s_cb_test_mode, LV_STATE_CHECKED);
+    if (s_cb_color_bar) {
+        if (cfg.color_bar) lv_obj_add_state(s_cb_color_bar, LV_STATE_CHECKED);
+        else lv_obj_clear_state(s_cb_color_bar, LV_STATE_CHECKED);
     }
     if (s_cb_h_mirror) {
         if (cfg.h_mirror) lv_obj_add_state(s_cb_h_mirror, LV_STATE_CHECKED);
@@ -286,15 +298,6 @@ static void load_camera_settings_to_ui(void) {
         if (cfg.v_flip) lv_obj_add_state(s_cb_v_flip, LV_STATE_CHECKED);
         else lv_obj_clear_state(s_cb_v_flip, LV_STATE_CHECKED);
     }
-    if (s_cb_edge_enh) {
-        if (cfg.edge_enh) lv_obj_add_state(s_cb_edge_enh, LV_STATE_CHECKED);
-        else lv_obj_clear_state(s_cb_edge_enh, LV_STATE_CHECKED);
-    }
-    if (s_cb_edge_auto) {
-        if (cfg.edge_auto) lv_obj_add_state(s_cb_edge_auto, LV_STATE_CHECKED);
-        else lv_obj_clear_state(s_cb_edge_auto, LV_STATE_CHECKED);
-    }
-
 }
 
 static void apply_camera_settings_cb(lv_event_t *event) {
@@ -303,36 +306,38 @@ static void apply_camera_settings_cb(lv_event_t *event) {
     app_manager_get_camera_settings(&cfg);
 
     cfg.capture_res_index = roller_selected_safe_u8(s_dd_cap_res, cfg.capture_res_index);
+    cfg.pix_format_index = roller_selected_safe_u8(s_dd_pix_fmt, cfg.pix_format_index);
+    cfg.frame_rate_index = roller_selected_safe_u8(s_dd_frame_rate, cfg.frame_rate_index);
     cfg.agc_ceiling_index = roller_selected_safe_u8(s_dd_agc_ceiling, cfg.agc_ceiling_index);
-    if (s_slider_ae) {
-        cfg.ae_level = (int8_t)roller_read_int(s_slider_ae);
+    if (s_dd_brightness) {
+        cfg.brightness_level = (int8_t)roller_read_int(s_dd_brightness);
     }
-    if (s_slider_edge_val) {
-        cfg.edge_val = (uint8_t)roller_read_int(s_slider_edge_val);
+    if (s_dd_contrast) {
+        cfg.contrast_level = (int8_t)roller_read_int(s_dd_contrast);
+    }
+    if (s_dd_saturation) {
+        cfg.saturation_level = (int8_t)roller_read_int(s_dd_saturation);
     }
     cfg.agc = checkbox_is_checked(s_cb_agc);
     cfg.aec = checkbox_is_checked(s_cb_aec);
     cfg.awb = checkbox_is_checked(s_cb_awb);
-    cfg.awb_gain = checkbox_is_checked(s_cb_awb_gain);
-    cfg.test_mode = checkbox_is_checked(s_cb_test_mode);
+    cfg.color_bar = checkbox_is_checked(s_cb_color_bar);
     cfg.h_mirror = checkbox_is_checked(s_cb_h_mirror);
     cfg.v_flip = checkbox_is_checked(s_cb_v_flip);
-    cfg.edge_enh = checkbox_is_checked(s_cb_edge_enh);
-    cfg.edge_auto = checkbox_is_checked(s_cb_edge_auto);
 
     app_manager_set_camera_settings(&cfg);
-    APP_LOGI("Settings: camera settings applied res=%u agc_ceiling=%u ae=%d edge_val=%u edge_enh=%d edge_auto=%d agc=%d aec=%d awb=%d awb_gain=%d test=%d hm=%d vf=%d",
+    APP_LOGI("Settings: camera settings applied res=%u fmt=%u fps=%u agc_ceiling=%u b=%d c=%d s=%d agc=%d aec=%d awb=%d color_bar=%d hm=%d vf=%d",
              (unsigned)cfg.capture_res_index,
+             (unsigned)cfg.pix_format_index,
+             (unsigned)cfg.frame_rate_index,
              (unsigned)cfg.agc_ceiling_index,
-             (int)cfg.ae_level,
-             (unsigned)cfg.edge_val,
-             (int)cfg.edge_enh,
-             (int)cfg.edge_auto,
+             (int)cfg.brightness_level,
+             (int)cfg.contrast_level,
+             (int)cfg.saturation_level,
              (int)cfg.agc,
              (int)cfg.aec,
              (int)cfg.awb,
-             (int)cfg.awb_gain,
-             (int)cfg.test_mode,
+             (int)cfg.color_bar,
              (int)cfg.h_mirror,
              (int)cfg.v_flip);
 }
@@ -346,24 +351,26 @@ static void camera_widget_debug_cb(lv_event_t *event) {
 
     if (obj == s_dd_cap_res) {
         APP_LOGI("Settings: ui res idx=%u", (unsigned)lv_roller_get_selected(s_dd_cap_res));
+    } else if (obj == s_dd_pix_fmt) {
+        APP_LOGI("Settings: ui pix fmt idx=%u", (unsigned)lv_roller_get_selected(s_dd_pix_fmt));
+    } else if (obj == s_dd_frame_rate) {
+        APP_LOGI("Settings: ui fps idx=%u", (unsigned)lv_roller_get_selected(s_dd_frame_rate));
     } else if (obj == s_dd_agc_ceiling) {
         APP_LOGI("Settings: ui agc_ceiling idx=%u", (unsigned)lv_roller_get_selected(s_dd_agc_ceiling));
-    } else if (obj == s_slider_ae) {
-        APP_LOGI("Settings: ui ae=%d", roller_read_int(s_slider_ae));
-    } else if (obj == s_slider_edge_val) {
-        APP_LOGI("Settings: ui edge_val=%d", roller_read_int(s_slider_edge_val));
+    } else if (obj == s_dd_brightness) {
+        APP_LOGI("Settings: ui brightness=%d", roller_read_int(s_dd_brightness));
+    } else if (obj == s_dd_contrast) {
+        APP_LOGI("Settings: ui contrast=%d", roller_read_int(s_dd_contrast));
+    } else if (obj == s_dd_saturation) {
+        APP_LOGI("Settings: ui saturation=%d", roller_read_int(s_dd_saturation));
     } else if (obj == s_cb_agc) {
         APP_LOGI("Settings: ui agc=%d", (int)checkbox_is_checked(s_cb_agc));
     } else if (obj == s_cb_aec) {
         APP_LOGI("Settings: ui aec=%d", (int)checkbox_is_checked(s_cb_aec));
     } else if (obj == s_cb_awb) {
         APP_LOGI("Settings: ui awb=%d", (int)checkbox_is_checked(s_cb_awb));
-    } else if (obj == s_cb_awb_gain) {
-        APP_LOGI("Settings: ui awb_gain=%d", (int)checkbox_is_checked(s_cb_awb_gain));
-    } else if (obj == s_cb_edge_enh) {
-        APP_LOGI("Settings: ui edge_enh=%d", (int)checkbox_is_checked(s_cb_edge_enh));
-    } else if (obj == s_cb_edge_auto) {
-        APP_LOGI("Settings: ui edge_auto=%d", (int)checkbox_is_checked(s_cb_edge_auto));
+    } else if (obj == s_cb_color_bar) {
+        APP_LOGI("Settings: ui color_bar=%d", (int)checkbox_is_checked(s_cb_color_bar));
     }
 }
 
@@ -653,14 +660,13 @@ static void build_apps_tab(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(sidebar, lv_color_hex(0xf6f6f6), LV_PART_MAIN);
 
     lv_obj_t *camera_page = lv_menu_page_create(menu, NULL);
-    lv_obj_t *camera_cont = lv_obj_create(camera_page);
-    lv_obj_set_pos(camera_cont, 0, 0);
-    lv_obj_set_size(camera_cont, lv_pct(100), 470);
+    lv_obj_t *camera_cont = lv_menu_cont_create(camera_page);
+    lv_obj_set_layout(camera_cont, LV_LAYOUT_NONE);
+    lv_obj_set_size(camera_cont, lv_pct(100), 520);
     lv_obj_set_style_bg_opa(camera_cont, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(camera_cont, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(camera_cont, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(camera_cont, 0, LV_PART_MAIN);
-    lv_obj_set_layout(camera_cont, LV_LAYOUT_NONE);
 
     lv_obj_t *entry_camera = lv_menu_cont_create(sidebar);
     lv_obj_t *entry_camera_label = lv_label_create(entry_camera);
@@ -669,102 +675,119 @@ static void build_apps_tab(lv_obj_t *tab) {
 
     lv_obj_t *label_cam_res = lv_label_create(camera_cont);
     lv_obj_set_pos(label_cam_res, 10, 10);
-    lv_label_set_text(label_cam_res, "Capture Resolution");
+    lv_label_set_text(label_cam_res, "Resolution");
 
     s_dd_cap_res = lv_roller_create(camera_cont);
-    lv_obj_set_pos(s_dd_cap_res, 20, 28);
-    lv_obj_set_size(s_dd_cap_res, 160, 48);
+    lv_obj_set_pos(s_dd_cap_res, 20, 30);
+    lv_obj_set_size(s_dd_cap_res, 80, 48);
     lv_roller_set_visible_row_count(s_dd_cap_res, 2);
     lv_roller_set_options(s_dd_cap_res,
-        "640*480@24\n"
-        "640*480@16\n"
-        "320*240@24\n"
-        "320*240@16\n"
-        "160*120@32\n"
-        "160*120@16",
+        "640*480\n"
+        "320*240\n"
+        "160*120",
         LV_ROLLER_MODE_NORMAL);
     lv_obj_add_event_cb(s_dd_cap_res, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    lv_obj_t *label_cont = lv_label_create(camera_cont);
-    lv_obj_set_pos(label_cont, 10, 92);
-    lv_label_set_text(label_cont, "Control");
+    lv_obj_t *label_cam_b = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_b, 110, 10);
+    lv_label_set_text(label_cam_b, "Brightness");
+
+    s_dd_brightness = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_brightness, 120, 30);
+    lv_obj_set_size(s_dd_brightness, 50, 48);
+    lv_roller_set_visible_row_count(s_dd_brightness, 2);
+    lv_roller_set_options(s_dd_brightness, "-2\n-1\n0\n1\n2", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_brightness, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_cam_fmt = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_fmt, 10, 100);
+    lv_label_set_text(label_cam_fmt, "Format");
+
+    s_dd_pix_fmt = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_pix_fmt, 20, 120);
+    lv_obj_set_size(s_dd_pix_fmt, 80, 48);
+    lv_roller_set_visible_row_count(s_dd_pix_fmt, 2);
+    lv_roller_set_options(s_dd_pix_fmt, "RGB565\nYUV422", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_pix_fmt, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_cam_c = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_c, 110, 100);
+    lv_label_set_text(label_cam_c, "Contrast");
+
+    s_dd_contrast = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_contrast, 120, 120);
+    lv_obj_set_size(s_dd_contrast, 50, 48);
+    lv_roller_set_visible_row_count(s_dd_contrast, 2);
+    lv_roller_set_options(s_dd_contrast, "-2\n-1\n0\n1\n2", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_contrast, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_cam_fr = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_fr, 10, 190);
+    lv_label_set_text(label_cam_fr, "Frame Rate");
+
+    s_dd_frame_rate = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_frame_rate, 20, 210);
+    lv_obj_set_size(s_dd_frame_rate, 80, 48);
+    lv_roller_set_visible_row_count(s_dd_frame_rate, 2);
+    lv_roller_set_options(s_dd_frame_rate, "2 FPS\n8 FPS\n15 FPS\n30 FPS\n60 FPS", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_frame_rate, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_cam_s = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_s, 110, 190);
+    lv_label_set_text(label_cam_s, "Saturation");
+
+    s_dd_saturation = lv_roller_create(camera_cont);
+    lv_obj_set_pos(s_dd_saturation, 120, 210);
+    lv_obj_set_size(s_dd_saturation, 50, 48);
+    lv_roller_set_visible_row_count(s_dd_saturation, 2);
+    lv_roller_set_options(s_dd_saturation, "-2\n-1\n0\n1\n2", LV_ROLLER_MODE_NORMAL);
+    lv_obj_add_event_cb(s_dd_saturation, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_cb_h_mirror = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_h_mirror, 20, 300);
+    lv_checkbox_set_text(s_cb_h_mirror, "HMirror");
+    lv_obj_add_event_cb(s_cb_h_mirror, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_cb_v_flip = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_v_flip, 120, 300);
+    lv_checkbox_set_text(s_cb_v_flip, "VFlip");
+    lv_obj_add_event_cb(s_cb_v_flip, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_cb_agc = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_agc, 20, 114);
-    lv_checkbox_set_text(s_cb_agc, "AGC");
+    lv_obj_set_pos(s_cb_agc, 20, 330);
+    lv_checkbox_set_text(s_cb_agc, "AutoGain");
     lv_obj_add_event_cb(s_cb_agc, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
+    s_cb_awb = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_awb, 120, 330);
+    lv_checkbox_set_text(s_cb_awb, "AWB");
+    lv_obj_add_event_cb(s_cb_awb, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_cb_aec = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_aec, 20, 360);
+    lv_checkbox_set_text(s_cb_aec, "AutoExposure");
+    lv_obj_add_event_cb(s_cb_aec, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_cam_gc = lv_label_create(camera_cont);
+    lv_obj_set_pos(label_cam_gc, 20, 385);
+    lv_label_set_text(label_cam_gc, "Gain Ceiling");
+
     s_dd_agc_ceiling = lv_roller_create(camera_cont);
-    lv_obj_set_pos(s_dd_agc_ceiling, 90, 110);
-    lv_obj_set_size(s_dd_agc_ceiling, 80, 48);
+    lv_obj_set_pos(s_dd_agc_ceiling, 57, 403);
+    lv_obj_set_size(s_dd_agc_ceiling, 70, 48);
     lv_roller_set_visible_row_count(s_dd_agc_ceiling, 2);
     lv_roller_set_options(s_dd_agc_ceiling,
         "2\n4\n8\n16\n32\n64\n128",
         LV_ROLLER_MODE_NORMAL);
     lv_obj_add_event_cb(s_dd_agc_ceiling, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    s_cb_awb = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_awb, 20, 164);
-    lv_checkbox_set_text(s_cb_awb, "AWB");
-    lv_obj_add_event_cb(s_cb_awb, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_awb_gain = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_awb_gain, 95, 164);
-    lv_checkbox_set_text(s_cb_awb_gain, "AWB Gain");
-    lv_obj_add_event_cb(s_cb_awb_gain, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_aec = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_aec, 20, 194);
-    lv_checkbox_set_text(s_cb_aec, "AEC");
-    lv_obj_add_event_cb(s_cb_aec, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_slider_ae = lv_roller_create(camera_cont);
-    lv_obj_set_pos(s_slider_ae, 90, 188);
-    lv_obj_set_size(s_slider_ae, 80, 48);
-    lv_roller_set_visible_row_count(s_slider_ae, 2);
-    lv_roller_set_options(s_slider_ae, "-2\n-1\n0\n1\n2", LV_ROLLER_MODE_NORMAL);
-    lv_obj_add_event_cb(s_slider_ae, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    lv_obj_t *label_edge = lv_label_create(camera_cont);
-    lv_obj_set_pos(label_edge, 10, 246);
-    lv_label_set_text(label_edge, "Edge");
-
-    s_cb_edge_enh = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_edge_enh, 20, 266);
-    lv_checkbox_set_text(s_cb_edge_enh, "EdgeEnh");
-    lv_obj_add_event_cb(s_cb_edge_enh, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_edge_auto = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_edge_auto, 120, 266);
-    lv_checkbox_set_text(s_cb_edge_auto, "EdgeAuto");
-    lv_obj_add_event_cb(s_cb_edge_auto, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_slider_edge_val = lv_roller_create(camera_cont);
-    lv_obj_set_pos(s_slider_edge_val, 20, 292);
-    lv_obj_set_size(s_slider_edge_val, 150, 48);
-    lv_roller_set_visible_row_count(s_slider_edge_val, 2);
-    lv_roller_set_options(s_slider_edge_val,
-        "0\n8\n16\n24\n32\n40\n48\n56\n64\n72\n80\n88\n96\n104\n112\n120\n128\n136\n144\n152\n160\n168\n176\n184\n192\n200\n208\n216\n224\n232\n240\n248\n255",
-        LV_ROLLER_MODE_NORMAL);
-    lv_obj_add_event_cb(s_slider_edge_val, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_test_mode = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_test_mode, 20, 352);
-    lv_checkbox_set_text(s_cb_test_mode, "Color bar");
-    lv_obj_add_event_cb(s_cb_test_mode, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_h_mirror = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_h_mirror, 20, 378);
-    lv_checkbox_set_text(s_cb_h_mirror, "H mirror");
-    lv_obj_add_event_cb(s_cb_h_mirror, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    s_cb_v_flip = lv_checkbox_create(camera_cont);
-    lv_obj_set_pos(s_cb_v_flip, 20, 404);
-    lv_checkbox_set_text(s_cb_v_flip, "V flip");
-    lv_obj_add_event_cb(s_cb_v_flip, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    s_cb_color_bar = lv_checkbox_create(camera_cont);
+    lv_obj_set_pos(s_cb_color_bar, 20, 470);
+    lv_checkbox_set_text(s_cb_color_bar, "ColorBar");
+    lv_obj_add_event_cb(s_cb_color_bar, camera_widget_debug_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *btn_apply_cam = lv_button_create(camera_cont);
-    lv_obj_set_pos(btn_apply_cam, 118, 434);
+    lv_obj_set_pos(btn_apply_cam, 120, 490);
     lv_obj_set_size(btn_apply_cam, 64, 24);
     lv_obj_set_style_bg_color(btn_apply_cam, lv_color_hex(0x2195f6), LV_PART_MAIN);
     lv_obj_set_style_border_width(btn_apply_cam, 0, LV_PART_MAIN);
@@ -800,18 +823,18 @@ static void screen_delete_cb(lv_event_t *event) {
     s_ta_phone = NULL;
     s_storage_status_label = NULL;
     s_dd_cap_res = NULL;
+    s_dd_pix_fmt = NULL;
+    s_dd_frame_rate = NULL;
     s_dd_agc_ceiling = NULL;
+    s_dd_brightness = NULL;
+    s_dd_contrast = NULL;
+    s_dd_saturation = NULL;
     s_cb_agc = NULL;
     s_cb_aec = NULL;
     s_cb_awb = NULL;
-    s_cb_awb_gain = NULL;
-    s_cb_test_mode = NULL;
+    s_cb_color_bar = NULL;
     s_cb_h_mirror = NULL;
     s_cb_v_flip = NULL;
-    s_slider_ae = NULL;
-    s_cb_edge_enh = NULL;
-    s_cb_edge_auto = NULL;
-    s_slider_edge_val = NULL;
     s_kb = NULL;
     APP_LOGI("Settings: screen delete done");
 }

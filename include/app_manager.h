@@ -29,19 +29,19 @@ typedef struct {
 } app_profile_t;
 
 typedef struct {
-    uint8_t capture_res_index; /* 0..5 */
+    uint8_t capture_res_index; /* 0..2 */
+    uint8_t pix_format_index;  /* 0..1 (RGB565/YUV422) */
+    uint8_t frame_rate_index;  /* 0..4 (2/8/15/30/60 FPS) */
     uint8_t agc_ceiling_index; /* 0..6 */
-    int8_t  ae_level;          /* -2..2 */
-    uint8_t edge_val;          /* 0..255 */
+    int8_t  brightness_level;  /* -2..2 */
+    int8_t  contrast_level;    /* -2..2 */
+    int8_t  saturation_level;  /* -2..2 */
     bool agc;
     bool aec;
     bool awb;
-    bool awb_gain;
-    bool test_mode;
+    bool color_bar;
     bool h_mirror;
     bool v_flip;
-    bool edge_enh;
-    bool edge_auto;
 } app_camera_settings_t;
 
 typedef struct {

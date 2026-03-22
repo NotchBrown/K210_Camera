@@ -45,70 +45,6 @@ static volatile bool s_preview_task_alive = false;
 static TaskHandle_t s_preview_task = NULL;
 static uint16_t s_preview_period_ms = 83;
 static bool s_preview_first_frame_logged = false;
-static bool s_edge_enh = true;
-static bool s_edge_auto = true;
-static uint8_t s_edge_val = 32;
-
-static inline uint8_t clamp_u8_i32(int32_t v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (uint8_t)v;
-}
-
-static void soften_preview_edges(uint16_t *buf, uint8_t strength) {
-    if (!buf || strength == 0U) {
-        return;
-    }
-
-    for (uint16_t y = 0; y < 240U; y++) {
-        uint32_t row = (uint32_t)y * 320U;
-        for (uint16_t x = 1; x < 319U; x++) {
-            uint32_t i = row + x;
-            uint16_t p0 = buf[i - 1U];
-            uint16_t p1 = buf[i];
-            uint16_t p2 = buf[i + 1U];
-
-            uint8_t r0 = (uint8_t)(((p0 >> 11) & 0x1F) << 3);
-            uint8_t g0 = (uint8_t)(((p0 >> 5) & 0x3F) << 2);
-            uint8_t b0 = (uint8_t)((p0 & 0x1F) << 3);
-
-            uint8_t r1 = (uint8_t)(((p1 >> 11) & 0x1F) << 3);
-            uint8_t g1 = (uint8_t)(((p1 >> 5) & 0x3F) << 2);
-            uint8_t b1 = (uint8_t)((p1 & 0x1F) << 3);
-
-            uint8_t r2 = (uint8_t)(((p2 >> 11) & 0x1F) << 3);
-            uint8_t g2 = (uint8_t)(((p2 >> 5) & 0x3F) << 2);
-            uint8_t b2 = (uint8_t)((p2 & 0x1F) << 3);
-
-            uint8_t ravg = (uint8_t)(((uint16_t)r0 + r2) >> 1);
-            uint8_t gavg = (uint8_t)(((uint16_t)g0 + g2) >> 1);
-            uint8_t bavg = (uint8_t)(((uint16_t)b0 + b2) >> 1);
-
-            uint8_t rn = clamp_u8_i32((int32_t)r1 + ((((int32_t)ravg - r1) * strength) >> 4));
-            uint8_t gn = clamp_u8_i32((int32_t)g1 + ((((int32_t)gavg - g1) * strength) >> 4));
-            uint8_t bn = clamp_u8_i32((int32_t)b1 + ((((int32_t)bavg - b1) * strength) >> 4));
-
-            buf[i] = (uint16_t)(((rn >> 3) << 11) | ((gn >> 2) << 5) | (bn >> 3));
-        }
-    }
-}
-
-static void apply_edge_tuning(uint16_t *buf) {
-    if (!buf) {
-        return;
-    }
-
-    if (!s_edge_enh) {
-        uint8_t strength = (uint8_t)(8U + ((255U - s_edge_val) >> 5));
-        soften_preview_edges(buf, strength);
-        return;
-    }
-
-    if (!s_edge_auto) {
-        uint8_t strength = (uint8_t)((255U - s_edge_val) >> 5);
-        soften_preview_edges(buf, strength);
-    }
-}
 
 static framerate_t map_ov2640_framerate(uint16_t fps) {
     if (fps <= 5U) {
@@ -124,6 +60,17 @@ static framerate_t map_ov2640_framerate(uint16_t fps) {
         return FRAMERATE_30FPS;
     }
     return FRAMERATE_60FPS;
+}
+
+static uint16_t map_frame_rate_index_to_fps(uint8_t index) {
+    switch (index) {
+        case 0: return 2;
+        case 1: return 8;
+        case 2: return 15;
+        case 3: return 30;
+        case 4: return 60;
+        default: return 15;
+    }
 }
 
 static void init_preview_placeholder(void) {
@@ -147,31 +94,19 @@ static void map_capture_profile(uint8_t index, framesize_t *frame_size, uint16_t
     switch (index) {
         case 0:
             *frame_size = FRAMESIZE_VGA;
-            *fps = 24;
+            *fps = 15;
             break;
         case 1:
-            *frame_size = FRAMESIZE_VGA;
-            *fps = 16;
+            *frame_size = FRAMESIZE_QVGA;
+            *fps = 15;
             break;
         case 2:
-            *frame_size = FRAMESIZE_QVGA;
-            *fps = 24;
-            break;
-        case 3:
-            *frame_size = FRAMESIZE_QVGA;
-            *fps = 16;
-            break;
-        case 4:
             *frame_size = FRAMESIZE_QQVGA;
-            *fps = 32;
-            break;
-        case 5:
-            *frame_size = FRAMESIZE_QQVGA;
-            *fps = 16;
+            *fps = 15;
             break;
         default:
             *frame_size = FRAMESIZE_QVGA;
-            *fps = 24;
+            *fps = 15;
             break;
     }
 }
@@ -240,10 +175,15 @@ static void camera_shutdown(void) {
 static bool camera_boot_from_settings(void) {
     app_camera_settings_t cfg;
     framesize_t requested_frame = FRAMESIZE_QVGA;
-    uint16_t requested_fps = 24;
+    uint16_t requested_fps = 15;
 
     app_manager_get_camera_settings(&cfg);
     map_capture_profile(cfg.capture_res_index, &requested_frame, &requested_fps);
+    requested_fps = map_frame_rate_index_to_fps(cfg.frame_rate_index);
+
+    if (cfg.pix_format_index != 0U) {
+        APP_LOGW("Camera: requested pix format idx=%u, runtime preview uses RGB565 path", (unsigned)cfg.pix_format_index);
+    }
 
     Sipeed_OV2640 *candidate = &s_camera_qvga;
     if (requested_frame == FRAMESIZE_VGA) {
@@ -269,18 +209,44 @@ static bool camera_boot_from_settings(void) {
         return false;
     }
 
-    (void)s_camera->setFrameRate(map_ov2640_framerate(requested_fps));
-    (void)s_camera->setGainCeiling((gainceiling_t)cfg.agc_ceiling_index);
-    (void)s_camera->setAutoGain(cfg.agc);
-    (void)s_camera->setAutoExposure(cfg.aec);
-    (void)s_camera->setAutoWhiteBalance(cfg.awb);
-    (void)s_camera->setHMirror(cfg.h_mirror);
-    (void)s_camera->setVFlip(cfg.v_flip);
-    (void)s_camera->setColorBar(cfg.test_mode);
-    (void)s_camera->setBrightnessLevel(cfg.ae_level);
-    s_edge_enh = cfg.edge_enh;
-    s_edge_auto = cfg.edge_auto;
-    s_edge_val = cfg.edge_val;
+    bool ok_fps = s_camera->setFrameRate(map_ov2640_framerate(requested_fps));
+    bool ok_gc = s_camera->setGainCeiling((gainceiling_t)cfg.agc_ceiling_index);
+    bool ok_agc = s_camera->setAutoGain(cfg.agc);
+    bool ok_aec = s_camera->setAutoExposure(cfg.aec);
+    bool ok_awb = s_camera->setAutoWhiteBalance(cfg.awb);
+    bool ok_hm = s_camera->setHMirror(cfg.h_mirror);
+    bool ok_vf = s_camera->setVFlip(cfg.v_flip);
+    bool ok_cb = s_camera->setColorBar(cfg.color_bar);
+    bool ok_b = s_camera->setBrightnessLevel(cfg.brightness_level);
+    bool ok_c = s_camera->setContrastLevel(cfg.contrast_level);
+    bool ok_s = s_camera->setSaturationLevel(cfg.saturation_level);
+
+    APP_LOGI("Camera: apply settings res=%u fmt=%u fps_idx=%u gc=%u b=%d c=%d s=%d agc=%d aec=%d awb=%d cb=%d hm=%d vf=%d",
+             (unsigned)cfg.capture_res_index,
+             (unsigned)cfg.pix_format_index,
+             (unsigned)cfg.frame_rate_index,
+             (unsigned)cfg.agc_ceiling_index,
+             (int)cfg.brightness_level,
+             (int)cfg.contrast_level,
+             (int)cfg.saturation_level,
+             (int)cfg.agc,
+             (int)cfg.aec,
+             (int)cfg.awb,
+             (int)cfg.color_bar,
+             (int)cfg.h_mirror,
+             (int)cfg.v_flip);
+    APP_LOGI("Camera: apply result fps=%d gc=%d agc=%d aec=%d awb=%d hm=%d vf=%d cb=%d b=%d c=%d s=%d",
+             (int)ok_fps,
+             (int)ok_gc,
+             (int)ok_agc,
+             (int)ok_aec,
+             (int)ok_awb,
+             (int)ok_hm,
+             (int)ok_vf,
+             (int)ok_cb,
+             (int)ok_b,
+             (int)ok_c,
+             (int)ok_s);
 
     APP_LOGW("Camera: OV2640 is fixed-focus; true autofocus is not supported in this sensor");
 
@@ -302,10 +268,11 @@ static bool camera_boot_from_settings(void) {
         s_preview_period_ms = 66U;
     }
 
-    APP_LOGI("Camera: preview init ok src=%ux%u idx=%u fps_req=%u fps_preview=%u",
+    APP_LOGI("Camera: preview init ok src=%ux%u res_idx=%u fps_idx=%u fps_req=%u fps_preview=%u",
              (unsigned)s_src_width,
              (unsigned)s_src_height,
              (unsigned)cfg.capture_res_index,
+             (unsigned)cfg.frame_rate_index,
              (unsigned)requested_fps,
              (unsigned)(1000U / s_preview_period_ms));
     return true;
@@ -432,7 +399,6 @@ static void preview_task_entry(void *arg) {
         } else {
             copy_qvga_frame_be_to_le(raw, s_preview_bufs[back_index]);
         }
-        apply_edge_tuning(s_preview_bufs[back_index]);
         publish_preview_buffer(back_index);
 
         frame_count++;
@@ -549,7 +515,6 @@ static void preview_present_timer_cb(lv_timer_t *timer) {
                     } else {
                         copy_qvga_frame_be_to_le(raw, s_preview_bufs[s_preview_front_index]);
                     }
-                    apply_edge_tuning(s_preview_bufs[s_preview_front_index]);
                     s_preview_last_frame_ms = now;
                     lv_image_set_src(s_preview_image, &s_preview_dscs[s_preview_front_index]);
                     lv_obj_invalidate(s_preview_image);
@@ -630,7 +595,7 @@ static void screen_delete_cb(lv_event_t *event) {
 }
 
 lv_obj_t *screen_camera_create(void) {
-    APP_LOGI("Camera: create start");
+    APP_LOGI("Camera: create start (entered from Home > Application > Camera)");
 
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_size(scr, 320, 240);

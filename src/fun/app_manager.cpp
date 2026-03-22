@@ -24,10 +24,10 @@ static SemaphoreHandle_t s_lock = NULL;
 static bool           s_rtc_ready = false;
 static app_profile_t  s_profile = { "User", "1145141919810" };
 static app_camera_settings_t s_camera_settings = {
-    2, 3, 0, 32,
-    true, true, true, false,
-    false, false, false,
-    true, true
+    1, 0, 2, 3,
+    0, 0, 0,
+    true, true, true,
+    false, false, false
 };
 static app_camera_state_t s_camera_state = { false, false, 0, 0 };
 static app_system_status_t s_system_status = {
@@ -273,27 +273,33 @@ void app_manager_get_camera_settings(app_camera_settings_t *settings) {
 
 void app_manager_set_camera_settings(const app_camera_settings_t *settings) {
     app_camera_settings_t s = *settings;
-    if (s.capture_res_index > 5) s.capture_res_index = 5;
+    if (s.capture_res_index > 2) s.capture_res_index = 2;
+    if (s.pix_format_index > 1) s.pix_format_index = 1;
+    if (s.frame_rate_index > 4) s.frame_rate_index = 4;
     if (s.agc_ceiling_index > 6) s.agc_ceiling_index = 6;
-    if (s.ae_level < -2) s.ae_level = -2;
-    if (s.ae_level > 2) s.ae_level = 2;
+    if (s.brightness_level < -2) s.brightness_level = -2;
+    if (s.brightness_level > 2) s.brightness_level = 2;
+    if (s.contrast_level < -2) s.contrast_level = -2;
+    if (s.contrast_level > 2) s.contrast_level = 2;
+    if (s.saturation_level < -2) s.saturation_level = -2;
+    if (s.saturation_level > 2) s.saturation_level = 2;
 
     state_lock();
     s_camera_settings = s;
     state_unlock();
 
-    APP_LOGI("AppMgr: camera settings saved res=%u agc_ceiling=%u ae=%d edge_val=%u edge_enh=%d edge_auto=%d agc=%d aec=%d awb=%d awb_gain=%d test=%d hm=%d vf=%d",
+    APP_LOGI("AppMgr: camera settings saved res=%u fmt=%u fps=%u agc_ceiling=%u b=%d c=%d s=%d agc=%d aec=%d awb=%d color_bar=%d hm=%d vf=%d",
              (unsigned)s.capture_res_index,
+             (unsigned)s.pix_format_index,
+             (unsigned)s.frame_rate_index,
              (unsigned)s.agc_ceiling_index,
-             (int)s.ae_level,
-             (unsigned)s.edge_val,
-             (int)s.edge_enh,
-             (int)s.edge_auto,
+             (int)s.brightness_level,
+             (int)s.contrast_level,
+             (int)s.saturation_level,
              (int)s.agc,
              (int)s.aec,
              (int)s.awb,
-             (int)s.awb_gain,
-             (int)s.test_mode,
+             (int)s.color_bar,
              (int)s.h_mirror,
              (int)s.v_flip);
 }
