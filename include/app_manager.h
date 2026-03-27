@@ -11,6 +11,7 @@ typedef enum {
     SCREEN_ID_SETTINGS = 1,
     SCREEN_ID_CAMERA   = 2,
     SCREEN_ID_FILE_MANAGER = 3,
+    SCREEN_ID_TERMINAL = 4,
 } app_screen_id_t;
 
 /* ── 全局日期时间 ─────────────────────────────────────────── */

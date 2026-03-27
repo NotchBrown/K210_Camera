@@ -1,2 +1,6 @@
 .pio/
 .vscode
+.VSCodeCounter
+.DS_Store
+*.log
+temp

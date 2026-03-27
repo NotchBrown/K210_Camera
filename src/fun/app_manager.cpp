@@ -13,6 +13,7 @@
 #include "screen_file_manager.h"
 #include "screen_home.h"
 #include "screen_settings.h"
+#include "screen_terminal.h"
 #include "screen_waiting.h"
 #include "sd_storage_service.h"
 
@@ -167,6 +168,9 @@ static void load_screen(app_screen_id_t id) {
             break;
         case SCREEN_ID_FILE_MANAGER:
             new_scr = screen_file_manager_create();
+            break;
+        case SCREEN_ID_TERMINAL:
+            new_scr = screen_terminal_create();
             break;
         default:
             return;

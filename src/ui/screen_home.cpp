@@ -117,6 +117,13 @@ static void app_not_migrated_cb(lv_event_t *event) {
     // show_home_tip("");
 }
 
+static void app_terminal_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    close_home_calendar();
+    APP_LOGI("Home: Terminal button clicked, navigate to TERMINAL");
+    app_manager_navigate_to(SCREEN_ID_TERMINAL);
+}
+
 static void calendar_pick_cb(lv_event_t *event) {
     lv_event_code_t code = lv_event_get_code(event);
     if (code != LV_EVENT_VALUE_CHANGED || !s_home_calendar || !s_home_date) {
@@ -240,7 +247,7 @@ static void build_apps_tab(lv_obj_t *tab_apps) {
     lv_obj_add_event_cb(item1, app_camera_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item2, app_file_manager_cb, LV_EVENT_CLICKED, NULL);
     // lv_obj_add_event_cb(item3, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(item4, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(item4, app_terminal_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(item5, app_not_migrated_cb, LV_EVENT_CLICKED, NULL);
 
     // s_home_tip = lv_label_create(tab_apps);
@@ -328,6 +335,7 @@ lv_obj_t *screen_home_create(void) {
     lv_obj_set_size(s_home_clock, 50, 30);
     lv_obj_set_style_text_align(s_home_clock, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_home_clock, app_font_ui(), LV_PART_MAIN);
+    lv_obj_set_style_pad_top(s_home_clock, 7, LV_PART_MAIN);
     lv_obj_move_foreground(s_home_clock);
 
     s_refresh_timer = lv_timer_create(home_timer_cb, 1000, NULL);

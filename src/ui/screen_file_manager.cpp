@@ -1025,6 +1025,7 @@ lv_obj_t *screen_file_manager_create(void) {
     lv_obj_set_size(s_clock_label, 50, 30);
     lv_obj_set_style_text_align(s_clock_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_clock_label, app_font_ui(), LV_PART_MAIN);
+    lv_obj_set_style_pad_top(s_clock_label, 7, LV_PART_MAIN);
     lv_obj_move_foreground(s_clock_label);
     lv_obj_move_foreground(btn_back);
 
